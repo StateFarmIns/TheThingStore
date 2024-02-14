@@ -1,0 +1,28 @@
+## Python things
+**__pycache__**
+thingstoreenv
+
+## Testing things
+.hypothesis*
+.coverage*
+.mypy_cache*
+.pytest_cache*
+bandit-report.html
+banditfindings.html
+mypy-report
+flake8*
+pytest-report.html
+test
+banditfindings.html
+assets
+## Packaging things
+**.egg-info**
+build
+## MLFlow things
+mlruns
+## VSCode things
+.vscode
+## Reporting
+reports
+## Sphinx
+docs/_build
