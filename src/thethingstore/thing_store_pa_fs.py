@@ -386,9 +386,9 @@ class FileSystemThingStore(ThingStore):
         super().__init__(
             metadata_filesystem=metadata_filesystem, local_storage_folder=None
         )
-        self._fs_metadata_file = managed_location + '/metadata.parquet'
-        self._fs_metadata_lockfile = managed_location + '/metadata-lock.parquet'
-        self._fs_output_location = managed_location + '/managed_files'
+        self._fs_metadata_file = managed_location + "/metadata.parquet"
+        self._fs_metadata_lockfile = managed_location + "/metadata-lock.parquet"
+        self._fs_output_location = managed_location + "/managed_files"
         self._output_location = self._fs_output_location
         if isinstance(metadata_filesystem, S3FileSystem):
             if self._fs_metadata_file.startswith("/"):
@@ -409,11 +409,7 @@ class FileSystemThingStore(ThingStore):
             schema=pa.schema({"USER": "str"}),
         )
 
-    def _load(
-        self,
-        file_identifier: FileId,
-        **kwargs
-    ) -> Union[Dataset, None]:
+    def _load(self, file_identifier: FileId, **kwargs) -> Union[Dataset, None]:
         """Convert a FileId to dataset.
 
         This returns a representation of the dataset (Dataset)
@@ -556,7 +552,7 @@ class FileSystemThingStore(ThingStore):
             file_identifier,
             str(_["FILE_VERSION"]),
             "artifacts",
-        # Networking pathname accommodation.
+            # Networking pathname accommodation.
         ).replace("\\", "/")
         try:
             artifacts = self._metadata_fs.get_file_info(
