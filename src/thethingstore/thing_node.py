@@ -88,7 +88,6 @@ class ThingNode:
             return None
         return self._component_map[attr]()
 
-
     def get_artifacts(self, artifact: Optional[str] = None) -> Union[str, List[str]]:
         """Retrieve node artifacts.
 
@@ -136,7 +135,6 @@ class ThingNode:
                 paths.append(_artifact)
             return paths
 
-
     def get_dataset(self) -> ds.Dataset:
         """Retrieve the node dataset.
 
@@ -150,7 +148,6 @@ class ThingNode:
         if "dataset" not in self._component_set:
             raise NotImplementedError(self._log_header + "Dataset not a valid option.")
         return self._ts.get_dataset(self.file_id)
-
 
     def get_metadata(self) -> Mapping[str, Any]:
         """Retrieve the node metadata.
@@ -229,9 +226,11 @@ class ThingNode:
         # TODO: Represent this as a full fileid?
         return f"ThingNode[{self.file_id}]"
 
+
 def _get_graph(node: ThingNode) -> Tuple[List[str], List[Tuple[str, str]]]:
     """Make data structures for nodes and edges for a ThingNode graph."""
     raise NotImplementedError("SAD")
+
 
 def _build_component_map(
     node: ThingNode, component_set: list[str]
