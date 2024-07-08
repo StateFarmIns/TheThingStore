@@ -4,7 +4,6 @@ from thethingstore.api.error import FileIDError, ThingStoreGeneralError
 from thethingstore import (
     file_id,
     FileSystemThingStore,
-    MLFlowThingStore,
 )
 from pyarrow.fs import FileSystem, LocalFileSystem, S3FileSystem
 from typing import Dict
@@ -22,9 +21,7 @@ test_cases = [
                 "fileid://silly.example",
                 "/FileSystemThingStore",
                 "?metadata_filesystem=TestA",
-                "&metadata_file=TestB",
-                "&metadata_lockfile=TestC",
-                "&output_location=TestD",
+                "&managed_location=TestD",
             ]
         ),
         {
@@ -32,9 +29,7 @@ test_cases = [
             "implementation": "FileSystemThingStore",
             "implementation_params": {
                 "metadata_filesystem": "TestA",
-                "metadata_file": "TestB",
-                "metadata_lockfile": "TestC",
-                "output_location": "TestD",
+                "managed_location": "TestD",
             },
         },
     ),  # This is how to add an implementation with params
@@ -44,9 +39,7 @@ test_cases = [
                 "fileid://silly.example",
                 "/FileSystemThingStore",
                 "?metadata_filesystem=TestA",
-                "&metadata_file=TestB",
-                "&metadata_lockfile=TestC",
-                "&output_location=TestD",
+                "&managed_location=TestD",
                 "#2",
             ]
         ),
@@ -55,9 +48,7 @@ test_cases = [
             "implementation": "FileSystemThingStore",
             "implementation_params": {
                 "metadata_filesystem": "TestA",
-                "metadata_file": "TestB",
-                "metadata_lockfile": "TestC",
-                "output_location": "TestD",
+                "managed_location": "TestD",
             },
             "fileversion": "2",
         },
@@ -84,9 +75,7 @@ test_cases = [
                 "fileid://silly.example",
                 "/FileSystemThingStore",
                 "?metadata_filesystem=LocalFileSystem",
-                "&metadata_file=TestB",
-                "&metadata_lockfile=TestC",
-                "&output_location=TestD",
+                "&managed_location=TestD",
                 "#2",
             ]
         ),
@@ -96,9 +85,7 @@ test_cases = [
             "implementation": FileSystemThingStore,
             "implementation_params": dict(
                 metadata_filesystem=LocalFileSystem,
-                metadata_file="TestB",
-                metadata_lockfile="TestC",
-                output_location="TestD",
+                managed_location="TestD",
             ),
         },
     ),
@@ -108,9 +95,7 @@ test_cases = [
                 "fileid://silly.example",
                 "/FileSystemThingStore",
                 "?metadata_filesystem=S3FileSystem",
-                "&metadata_file=TestB",
-                "&metadata_lockfile=TestC",
-                "&output_location=TestD",
+                "&managed_location=TestD",
                 "#avastmehearties",
             ]
         ),
@@ -120,51 +105,7 @@ test_cases = [
             "implementation": FileSystemThingStore,
             "implementation_params": dict(
                 metadata_filesystem=S3FileSystem,
-                metadata_file="TestB",
-                metadata_lockfile="TestC",
-                output_location="TestD",
-            ),
-        },
-    ),
-    (
-        "".join(
-            [
-                "fileid://silly.example",
-                "/MLFlowThingStore",
-                "?metadata_filesystem=S3FileSystem",
-                "&tracking_uri=TestB",
-                "&local_storage_folder=TestC",
-            ]
-        ),
-        {
-            "fileid": "silly.example",
-            "fileversion": None,
-            "implementation": MLFlowThingStore,
-            "implementation_params": dict(
-                metadata_filesystem=S3FileSystem,
-                tracking_uri="TestB",
-                local_storage_folder="TestC",
-            ),
-        },
-    ),
-    (
-        "".join(
-            [
-                "fileid://silly.example",
-                "/MLFlowThingStore",
-                "?metadata_filesystem=S3FileSystem",
-                "&tracking_uri=TestB",
-                "&local_storage_folder=TestC",
-            ]
-        ),
-        {
-            "fileid": "silly.example",
-            "fileversion": None,
-            "implementation": MLFlowThingStore,
-            "implementation_params": dict(
-                metadata_filesystem=S3FileSystem,
-                tracking_uri="TestB",
-                local_storage_folder="TestC",
+                managed_location="TestD",
             ),
         },
     ),
@@ -189,8 +130,7 @@ def test_data_model_error() -> None:
             "fileid://silly.example",
             "/MistypedMetadata",
             "?metadata_filesystem=S3FileSystem",
-            "&tracking_uri=TestB",
-            "&local_storage_folder=TestC",
+            "&managed_location=TestD",
         ]
     )
     components = file_id.parse_fileid(flid)
@@ -202,8 +142,7 @@ def test_data_model_error() -> None:
         [
             "fileid://silly.example",
             "?metadata_filesystem=S3FileSystem",
-            "&tracking_uri=TestB",
-            "&local_storage_folder=TestC",
+            "&managed_location=TestD",
         ]
     )
     components = file_id.parse_fileid(flid)
@@ -216,7 +155,7 @@ def test_data_model_error() -> None:
     flid = "".join(
         [
             "fileid://silly.example",
-            "/MLFlowThingStore",
+            "/FileSystemThingStore",
         ]
     )
     components = file_id.parse_fileid(flid)
@@ -229,10 +168,9 @@ def test_data_model_error() -> None:
     flid = "".join(
         [
             "fileid://silly.example",
-            "/MLFlowThingStore",
+            "/FileSystemThingStore",
             "?metadata_filesystem=SillyFileSystem",
-            "&tracking_uri=TestB",
-            "&local_storage_folder=TestC",
+            "&managed_location=TestD",
         ]
     )
     components = file_id.parse_fileid(flid)

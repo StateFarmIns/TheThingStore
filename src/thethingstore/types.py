@@ -6,25 +6,6 @@ This sets out types for the different metadata components, defines
 some typing for the different kinds of datasets used in the TS, and
 exposes a few utilities for dataset and component tying representation.
 
-FileId Component
-~~~~~~~~~~~~~~~~
-FileId: str
-    This is a string, albeit one with expected formatting.
-    Please see `file_id.py`.
-Parameter:
-    This is a potentially arbitrary dictionary mapping structure.
-Metadata:
-    This is a potentially arbitrary dictionary mapping structure.
-Metric:
-    This is a potentially arbitrary dictionary mapping structure
-    (albeit one with only float values).
-Dataset:
-    This represents an *atomic* element of data (i.e. a single Table
-    of information.) This could be an in-memory dataset, or it
-    might be an on-disk or otherwise externally represented set of
-    data.
-
-
 Dataset Typing
 ~~~~~~~~~~~~~~
 * InMemoryDatasets: This is a mapping from the string name of the
@@ -36,7 +17,6 @@ Dataset Typing
     dataset representation (i.e. 'ParquetDocument') to the class used
     in typing (i.e. `str`) for those representations which are
     'ticket' (or memory efficient) representations of remote data.
-
 
 Typing Utilities
 ~~~~~~~~~~~~~~~~
@@ -53,7 +33,18 @@ import logging
 import os
 
 from thethingstore.api import error as tse
-from typing import Any, Dict, List, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    TypedDict,
+    TypeVar,
+    Union,
+)
 from pyarrow import Table
 from pyarrow.dataset import Dataset as paDataset
 from pandas import DataFrame as pdDataFrame
@@ -83,10 +74,31 @@ except ImportError:
 #######################
 # TODO: Make Param / metadata more arbitrary.
 FileId = str
-Parameter = TypeVar("Parameter", str, int, float)
-Metadata = TypeVar("Metadata", str, int, float, datetime.datetime, None)
-Metric = TypeVar("Metric", int, float)
-Dataset = TypeVar("Dataset", str, paDataset, Table, pdDataFrame, GeoDataFrame)
+Atomic = TypeVar("Atomic", str, int, float, datetime.datetime, FileId, None)
+Complex = TypeVar("Complex", Iterable[Atomic], Mapping[str, Atomic])  # type: ignore
+Dataset = TypeVar(
+    "Dataset", Atomic, Complex, paDataset, Table, pdDataFrame, GeoDataFrame  # type: ignore
+)
+Metadata = Atomic  # type: ignore
+Parameter = TypeVar("Parameter", Atomic, Complex)  # type: ignore
+Metric = Atomic  # type: ignore
+
+
+class Thing(TypedDict, total=False):
+    dataset: Optional[Dataset]  # type: ignore
+    metadata: Optional[Mapping[str, Metadata]]  # type: ignore
+    parameters: Optional[Mapping[str, Parameter]]  # type: ignore
+    embedding: Optional[Dataset]  # type: ignore
+    metrics: Optional[Mapping[str, Metric]]  # type: ignore
+    artifacts: Optional[Mapping[str, Any]]
+    function: Optional[Callable]
+
+
+###############
+# Data Layers #
+###############
+# This is a thing that implements the ThingStore API
+DataLayer = Any
 
 ###########################
 # Dataset Representations #

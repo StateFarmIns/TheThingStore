@@ -1,23 +1,25 @@
 """FileSystem Metadata Object.
 
-This implements a Thing Store backed by an S3 storage.
-This requires specifying a bucket and a few prefixes.
+This implements a Thing Store backed by a filesystem storage.
 """
+import importlib.util
 import json
 import logging
 import os
 import tempfile
 import pandas as pd
 import pyarrow as pa
+import pyarrow.fs as fs
 import pyarrow.compute as pc
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 import shutil
 import time
 from datetime import datetime
+
 from thethingstore.api.error import ThingStoreFileNotFoundError as TSFNFError
 from thethingstore.api.save import save as artifact_save
-from thethingstore.api.load import materialize
+from thethingstore.api.load import load, materialize
 from thethingstore.thing_store_base import ThingStore
 from thethingstore.types import Dataset, FileId, Parameter, Metadata, Metric
 from pyarrow.fs import (
@@ -27,7 +29,7 @@ from pyarrow.fs import (
     LocalFileSystem,
     S3FileSystem,
 )
-from typing import Any, Mapping, List, Optional, Union
+from typing import Any, Callable, Mapping, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +75,12 @@ def update_metadata_dataset(
     Please file an issue.
     """
     start_time = datetime.now()
+
     # This can be tested by creating a lock prior.
-    while _metadata_lock_status(fs_metadata=fs_metadata):
+    while _metadata_lock_status(fs_metadata=fs_metadata):  # type: ignore
         # While the file is locked.
         # Wait a few seconds.
-        time.sleep(0.2)
+        time.sleep(0.2)  # type: ignore
         current_time = datetime.now()
         if (current_time - start_time).seconds > default_timeout:
             raise TimeoutError(err_msg)
@@ -136,7 +139,8 @@ def update_metadata_dataset(
 
     try:
         metadata_dataset = pa.concat_tables(
-            [metadata_dataset.to_table(), additional_metadata], promote=True
+            [metadata_dataset.to_table(), additional_metadata],
+            promote_options="default",
         )
     except BaseException as e:
         raise Exception(metadata_dataset.schema, additional_metadata.schema) from e
@@ -386,10 +390,9 @@ class FileSystemThingStore(ThingStore):
         super().__init__(
             metadata_filesystem=metadata_filesystem, local_storage_folder=None
         )
-        self._fs_metadata_file = managed_location + '/metadata.parquet'
-        self._fs_metadata_lockfile = managed_location + '/metadata-lock.parquet'
-        self._fs_output_location = managed_location + '/managed_files'
-        self._output_location = self._fs_output_location
+        self._fs_metadata_file = managed_location + "/metadata.parquet"
+        self._fs_metadata_lockfile = managed_location + "/metadata-lock.parquet"
+        self._fs_output_location = managed_location + "/managed_files"
         if isinstance(metadata_filesystem, S3FileSystem):
             if self._fs_metadata_file.startswith("/"):
                 self._fs_metadata_file = self._fs_metadata_file[1:]
@@ -397,6 +400,7 @@ class FileSystemThingStore(ThingStore):
                 self._fs_metadata_lockfile = self._fs_metadata_lockfile[1:]
             if self._fs_output_location.startswith("/"):
                 self._fs_output_location = self._fs_output_location[1:]
+        self._output_location = self._fs_output_location
         # Quick checkycheck here.
         create_default_dataset(
             filesystem=metadata_filesystem,
@@ -409,10 +413,109 @@ class FileSystemThingStore(ThingStore):
             schema=pa.schema({"USER": "str"}),
         )
 
-    def _load(
-        self,
-        file_identifier: FileId,
+    def _delete(self, file_id: FileId) -> None:
+        """Delete a file.
+        Calling delete upon any individual file will accomplish one of two things, depending on the current state:
+        * If the file is valid `(DATASET_VALID / THING_VALID == True)` this will
+        log a new version of the file, with metadata only, and with DATASET_VALID set to False.
+        * If the file is not valid `(DATASET_VALID / THING_VALID == False)` this
+        will destructively remove that file (both metadata and contents.)
+
+        Parameters
+        ----------
+        file_id: FileID
+            This is the identifier for the file in the ThingStore.
+        """
+        # Grab TS connection info and parquet file
+        _filesystem = self._metadata_fs
+        metadata_parquet_path = self._fs_metadata_file
+        metadata_folder_path = self._fs_output_location
+        df = self.browse()
+        # Checks if the file is valid
+        try:
+            _metadata = dict(self.get_metadata(file_id))
+        except Exception as e:
+            raise KeyError(
+                f" Unable to delete because {file_id} does not exist!"
+            ) from e
+        if _metadata["DATASET_VALID"]:
+            _metadata["DATASET_VALID"] = "FALSE"
+            self.log(metadata=_metadata)
+            df = self.browse()
+        elif not _metadata["DATASET_VALID"]:
+            # Make a backup before anything destructive
+            bkp_path = metadata_parquet_path.replace(
+                ".parquet", f'{datetime.now().strftime("%Y%m%d%H%M")}.bkp'
+            )
+            pq.write_table(
+                ds.dataset(metadata_parquet_path, filesystem=_filesystem).to_table(),
+                bkp_path,
+                filesystem=_filesystem,
+            )
+            if not _filesystem.get_file_info(bkp_path):
+                raise Exception("Backup was not found")
+            df = df.drop(df[(df["FILE_ID"] == file_id)].index)
+            delete_path = os.path.join(metadata_folder_path, file_id)
+            _filesystem.delete_dir(delete_path)
+            logger.warning(f"Deleted {file_id}")
+        if isinstance(_filesystem, S3FileSystem):
+            with tempfile.TemporaryDirectory() as t:
+                # Pandas is not playing nicely with moto, so we write to local first, then copy to s3 with pyarrow
+                temp_path = os.path.join(f"{t}/data.parquet")
+                df.to_parquet(path=temp_path)
+                copy_files(
+                    source=temp_path,
+                    destination=metadata_parquet_path,
+                    source_filesystem=LocalFileSystem(),
+                    destination_filesystem=self._metadata_fs,
+                )
+        else:
+            df.to_parquet(path=metadata_parquet_path, engine="pyarrow")
+
+    def _update(self, file_id: FileId, **kwargs: Any) -> None:
+        """Update a file.
+        Update is a convenience function which logs a copy of the (by default) most
+        recent version of a FILE_ID with specified components updated.
+        This copies the previous object and *only* updates the specified component.
+
+        Parameters
+        ----------
+        file_id: FileID
+            This is the identifier for the file in the ThingStore.
         **kwargs
+            Specific components of the file that are passed into _update
+        """
+        _filesystem = self._metadata_fs
+        # Create a directory to store artifacts if they exist
+        temp_artifacts = self._fs_metadata_file.replace(".parquet", "artifacts")
+        _filesystem.create_dir(temp_artifacts)
+        self.get_artifacts(file_id, temp_artifacts)
+        file_info_list = _filesystem.get_file_info(
+            fs.FileSelector(temp_artifacts, recursive=False)
+        )
+        old_thing = {
+            "dataset": self.get_dataset(file_id),
+            "metrics": self.get_metrics(file_id) if self.get_metrics(file_id) else None,
+            "metadata": self.get_metadata(file_id),
+            "parameters": self.get_parameters(file_id)
+            if self.get_parameters(file_id)
+            else None,
+            "artifacts_folder": temp_artifacts if file_info_list else None,
+        }
+        for key, value in kwargs.items():
+            old_thing[key] = value
+        self.log(
+            dataset=old_thing["dataset"],  # type: ignore
+            parameters=old_thing["parameters"],  # type: ignore
+            metadata=old_thing["metadata"],  # type: ignore
+            metrics=old_thing["metrics"],  # type: ignore
+            artifacts_folder=old_thing["artifacts_folder"],  # type: ignore
+        )
+        # Delete the temporary artifacts folder
+        _filesystem.delete_dir(temp_artifacts)
+
+    def _load(
+        self, file_identifier: FileId, component: str = "data", **kwargs: Any
     ) -> Union[Dataset, None]:
         """Convert a FileId to dataset.
 
@@ -432,7 +535,7 @@ class FileSystemThingStore(ThingStore):
         # This blows up if the file ID DNE!
         _ = self._get_metadata(file_identifier=file_identifier)
         dataset_location = os.path.join(
-            self._output_location, file_identifier, str(_["FILE_VERSION"]), "data"
+            self._output_location, file_identifier, str(_["FILE_VERSION"]), component
         )
         if self._metadata_fs.get_file_info(dataset_location).type == 0:  # Not found
             return None
@@ -443,9 +546,10 @@ class FileSystemThingStore(ThingStore):
         self,
         dataset: Optional[Dataset] = None,
         parameters: Optional[Mapping[str, Parameter]] = None,
-        metadata: Optional[Mapping[str, Optional[Metadata]]] = None,
-        metrics: Optional[Mapping[str, Metric]] = None,
+        metadata: Optional[Mapping[str, Optional[Metadata]]] = None,  # type: ignore
+        metrics: Optional[Mapping[str, Metric]] = None,  # type: ignore
         artifacts_folder: Optional[str] = None,
+        embedding: Optional[Dataset] = None,
     ) -> FileId:
         """Store a file in the Thing Store and associated information in the metadata.
 
@@ -465,6 +569,8 @@ class FileSystemThingStore(ThingStore):
             this file.
         artifacts_folder: Optional[str] = None
             This is a folderpath that may be collected and logged with this file.
+        embedding: Optional[Dataset] = None
+            This is a (set of) two-dimensional embedding(s).
 
         Returns
         -------
@@ -473,7 +579,7 @@ class FileSystemThingStore(ThingStore):
             If this is not unique this will raise an exception.
         """
         if metadata is None:
-            _metadata: Mapping[str, Optional[Metadata]] = {}
+            _metadata: Mapping[str, Optional[Metadata]] = {}  # type: ignore
         else:
             _metadata = metadata
 
@@ -485,6 +591,7 @@ class FileSystemThingStore(ThingStore):
         )
         if isinstance(self._metadata_fs, S3FileSystem):
             # Cheat.
+            self._metadata_fs.create_dir(output_path, recursive=True)
             pq.write_table(
                 table=pa.Table.from_pylist([]),
                 where=os.path.join(output_path, "temp"),
@@ -509,6 +616,7 @@ class FileSystemThingStore(ThingStore):
                     pd.DataFrame([_metadata]),
                     schema=pa.Schema.from_pandas(pd.DataFrame([_metadata])),
                 )
+                # aaaand save it here, too.
                 artifact_save(_metadata_to_add, f"{t}/metadata/metadata")
             # 4. Save the metrics {file_id}/metrics
             if metrics is not None:
@@ -517,7 +625,11 @@ class FileSystemThingStore(ThingStore):
             # 5. Save the artifacts
             if artifacts_folder is not None:
                 shutil.copytree(artifacts_folder, f"{t}/artifacts")
-            # 6. Use filesystems to just copy stuff over!
+            # 6. Save the embedding
+            if embedding is not None:
+                os.makedirs(f"{t}/embedding/")
+                artifact_save(embedding, f"{t}/embedding/embedding")
+            # 7. Use filesystems to just copy stuff over!
             if isinstance(self._metadata_fs, S3FileSystem):
                 # TODO I think we want some documentation on what, exactly, this is doing.
                 for root, dirs, files in os.walk(t):
@@ -556,7 +668,7 @@ class FileSystemThingStore(ThingStore):
             file_identifier,
             str(_["FILE_VERSION"]),
             "artifacts",
-        # Networking pathname accommodation.
+            # Networking pathname accommodation.
         ).replace("\\", "/")
         try:
             artifacts = self._metadata_fs.get_file_info(
@@ -661,7 +773,7 @@ class FileSystemThingStore(ThingStore):
             parameters = parameters[0]
         return parameters
 
-    def _get_metadata(self, file_identifier: FileId) -> Mapping[str, Metadata]:
+    def _get_metadata(self, file_identifier: FileId) -> Mapping[str, Metadata]:  # type: ignore
         # Read from the metadata parquet document.
         if not self._check_file_id(file_identifier):
             raise TSFNFError(file_identifier=file_identifier)
@@ -699,7 +811,7 @@ class FileSystemThingStore(ThingStore):
 
     def _get_metrics(
         self, file_identifier: FileId, filesystem: Optional[FileSystem] = None
-    ) -> Mapping[str, Metric]:
+    ) -> Mapping[str, Metric]:  # type: ignore
         _ = self._get_metadata(file_identifier=file_identifier)
         metric_location = os.path.join(
             self._output_location, file_identifier, str(_["FILE_VERSION"]), "metrics"
@@ -727,6 +839,43 @@ class FileSystemThingStore(ThingStore):
             metrics = metrics[0]
         return metrics
 
+    def _get_function(
+        self, file_identifier: FileId, filesystem: Optional[FileSystem] = None
+    ) -> Optional[Callable]:
+        _ = self._get_metadata(file_identifier=file_identifier)
+        function_location = os.path.join(
+            self._output_location,
+            file_identifier,
+            str(_["FILE_VERSION"]),
+            "artifacts/function",
+        )
+        if filesystem is None:
+            filesystem = self._metadata_fs
+        try:
+            _ = [
+                _.base_name
+                for _ in self._metadata_fs.get_file_info(
+                    FileSelector(function_location, recursive=True)
+                )
+            ]
+        except FileNotFoundError:
+            logger.warn(f"No function for FILE_ID@{file_identifier}")
+            return None
+        with tempfile.TemporaryDirectory() as t:
+            # This uses standard Python import libraries
+            #   to bring down a Python file and read it into
+            #   scope. After this it's available as a module.
+            py_file_path = f"{t}/artifacts/workflow.py"
+            self.get_artifact(file_identifier, "function/workflow.py", t)
+            _, py_file_name = os.path.split(py_file_path)
+            spec = importlib.util.spec_from_file_location(
+                py_file_name.replace(".py", ""), py_file_path.replace(".py", "") + ".py"
+            )
+            assert spec is not None  # nosec
+            _module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(_module)  # type: ignore
+            return _module.workflow
+
     def _browse(self, **kwargs: Any) -> pd.DataFrame:
         if kwargs is None:
             kwargs = {}
@@ -749,6 +898,27 @@ class FileSystemThingStore(ThingStore):
         )
         return metadata_dataset
 
+    def _get_embedding(self, file_identifier: FileId, **kwargs: Any) -> ds.Dataset:
+        try:
+            import ibis
+        except ImportError:
+            raise Exception("Please run `pip install ibis` to use embeddings.")
+        try:
+            import torch
+        except ImportError:
+            raise Exception("Please run `pip install torch` to use embeddings.")
+        _params: dict[str, Any] = {"dataset_type": "dataset", "output_format": "table"}
+        _params.update(kwargs)
+
+        torch_map = ibis.memtable(
+            load(
+                self._load(file_identifier=file_identifier, component="embedding"),
+                **_params,
+            )
+        ).to_torch()
+
+        return torch.stack(tuple(torch_map.values()), dim=1)
+
     def _post_process_browse(self, browse_results: pd.DataFrame) -> pd.DataFrame:
         return browse_results
 
@@ -761,7 +931,7 @@ class FileSystemThingStore(ThingStore):
         # 'Not' not found.
         return not fl_info.type == 0  # This is a File Not Found code.
 
-    def _test_field_value(self, field: str, value: Metadata) -> bool:
+    def _test_field_value(self, field: str, value: Metadata) -> bool:  # type: ignore
         _data = ds.dataset(
             self._fs_metadata_file,
             filesystem=self._metadata_fs,

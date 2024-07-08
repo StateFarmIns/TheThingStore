@@ -15,6 +15,7 @@ import pickle  # nosec - This requires explicit loading.
 from thethingstore import types as tst
 from thethingstore.api import error as tsle
 from thethingstore.api._fs import get_fs, ls_dir
+
 from pyarrow.fs import S3FileSystem, FileSystem
 from typing import Any, Dict, List, Iterable, Mapping, Optional, Tuple, Union
 from urllib.parse import urlparse
@@ -33,6 +34,83 @@ try:
 except ImportError:
     # Do nothing.
     _ = False
+
+
+def _is_dataset(x: Any) -> bool:
+    return x in (ds.Dataset, ds.FileSystemDataset, ds.UnionDataset)
+
+
+def _is_table(x: Any) -> bool:
+    return x == pa.Table
+
+
+def _is_pandas(x: Any) -> bool:
+    return x == pd.DataFrame
+
+
+def _is_torch(x: Any) -> bool:
+    try:
+        import torch
+    except ImportError:
+        return False
+    return x == torch.Tensor
+
+
+def _get_type(  # noqa: C901
+    x: Any, dataset_or_filepaths: Union[tst.Dataset, List[tst.Dataset]]
+) -> str:
+    # If this iterable has more than one contained type, die!
+    if len(x) > 1:
+        raise tsle.ThingStoreLoadingError(
+            f"""
+        Loading multiple types simultaneously is not implemented!
+
+        Types
+        -----\n{x}
+        """
+        )
+
+    # Now pull out the singular type.
+    _type = x[0]
+    if _type == str:
+        # Dataset type can be parquet, shape, or file id
+        _endswith = list({pathlib.Path(_).suffix for _ in dataset_or_filepaths})
+
+        if len(_endswith) > 1:
+            raise tsle.ThingStoreLoadingError(  # type: ignore
+                f"""
+            Loading multiple file extensions simultaneously is not implemented!
+
+            Extensions
+            ----------\n{_endswith}
+            """
+            )
+        # If there is *no* suffix...
+        if len(_endswith[0]) == 0:
+            # It's *probably* a file id.
+            dataset_type = "fileid"
+        # Otherwise it's pretty easy to pick out.
+        elif _endswith[0] == ".parquet":
+            dataset_type = "parquet"
+        elif _endswith[0] in (".shp", ".gdb"):
+            dataset_type = "shape"
+        elif _endswith[0] in (".pickle", ".pkl"):
+            dataset_type = "pickle"
+        else:
+            raise tsle.ThingStoreLoadingError(
+                f"Cannot understand dataset with suffix {_endswith[0]}"
+            )
+    elif _is_dataset(_type):
+        dataset_type = "dataset"
+    elif _is_table(_type):
+        dataset_type = "table"
+    elif _is_pandas(_type):
+        dataset_type = "pandas"
+    elif _is_torch(_type):
+        dataset_type = "torch"
+    else:
+        raise tsle.ThingStoreLoadingError(f"Cannot understand dataset type {_type}")
+    return dataset_type
 
 
 def _get_info(  # noqa: C901
@@ -89,11 +167,9 @@ def _get_info(  # noqa: C901
     >>> type(items[0])
     <class 'str'>
     """
-    # TODO: Move this to string representation of class *or* something else
-    #   smarter that doesn't require import of all the tools in every scope.
-    # 'Duh.'
     # First, do a check to determine if this is an iterable
     #   of datasets and, if it is not, make it so.
+    # Here we go...
     _atomic_type = (str, pd.DataFrame, ds.Dataset, pa.Table)
     _dataset_or_filepaths: Iterable[Any]
     if not isinstance(dataset_or_filepaths, collections.abc.Iterable):
@@ -102,56 +178,9 @@ def _get_info(  # noqa: C901
         _dataset_or_filepaths = [dataset_or_filepaths]
     else:
         _dataset_or_filepaths = dataset_or_filepaths
-    # Now create an empty set for types.
+    # Now create a list of distinct types.
     _types = list(set(type(_) for _ in _dataset_or_filepaths))
-    # If this iterable has more than one contained type, die!
-    if len(_types) > 1:
-        raise tsle.ThingStoreLoadingError(
-            f"""
-        Loading multiple types simultaneously is not implemented!
-
-        Types
-        -----\n{_types}
-        """
-        )
-    # Now pull out the singular type.
-    _type = _types[0]
-    if _type == str:
-        # Dataset type can be parquet, shape, or file id
-        _endswith = list({pathlib.Path(_).suffix for _ in _dataset_or_filepaths})
-        if len(_endswith) > 1:
-            raise tsle.ThingStoreLoadingError(
-                f"""
-            Loading multiple file extensions simultaneously is not implemented!
-
-            Extensions
-            ----------\n{_endswith}
-            """
-            )
-        # If there is *no* suffix...
-        if len(_endswith[0]) == 0:
-            # It's *probably* a file id.
-            dataset_type = "fileid"
-        # Otherwise it's pretty easy to pick out.
-        elif _endswith[0] == ".parquet":
-            dataset_type = "parquet"
-        elif _endswith[0] in (".shp", ".gdb"):
-            dataset_type = "shape"
-        elif _endswith[0] in (".pickle", ".pkl"):
-            dataset_type = "pickle"
-        else:
-            raise tsle.ThingStoreLoadingError(
-                f"Cannot understand dataset with suffix {_endswith[0]}"
-            )
-    elif _type in (ds.Dataset, ds.FileSystemDataset, ds.UnionDataset):
-        dataset_type = "dataset"
-    elif _type == pa.Table:
-        dataset_type = "table"
-    elif _type == pd.DataFrame:
-        dataset_type = "pandas"
-    else:
-        raise tsle.ThingStoreLoadingError(f"Cannot understand dataset type {_type}")
-    return _dataset_or_filepaths, dataset_type
+    return _dataset_or_filepaths, _get_type(_types, _dataset_or_filepaths)
 
 
 def _s3_str_handler(
@@ -418,7 +447,6 @@ def materialize(  # noqa: C901
         The item restored to it's former glory.
     """
     if filesystem is None:  # If no filesystem is passed we try and get one.
-
         filepath, filesystem = get_fs(filepath)
     if isinstance(filepath, str):  # A single thing to look at mon.
         file_info = filesystem.get_file_info(filepath)

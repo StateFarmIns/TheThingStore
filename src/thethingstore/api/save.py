@@ -4,10 +4,8 @@ This allows for modestly intelligent representation of multiple
 types of data.
 """
 
-import numpy as np
 import os
-import pandas as pd
-import pickle  # nosec - This requires explicit loading.
+import pickle  # nosec
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
@@ -16,26 +14,115 @@ from thethingstore.api._fs import get_fs
 from pyarrow.fs import FileSystem
 from typing import Any, Optional
 
-
 ####################################################################
 #                      Conditional Imports                         #
 # ---------------------------------------------------------------- #
 # These are here to provide utility *if needed*.                   #
 ####################################################################
+
 try:
-    from sklearn.base import BaseEstimator
-    from sklearn.neighbors import BallTree
+    # flake doesn't really like these conditional imports
+    # and that's okay
+    from sklearn.base import BaseEstimator  # noqa: F401
+    from sklearn.neighbors import BallTree  # noqa: F401
 except ImportError:
     # Do nothing.
     _ = False
 
 try:
-    import joblib
+    import joblib  # noqa: F401
 except ImportError:
     # Do nothing.
     _ = False
 
 atomic_types = (str, int, float)
+
+
+def _is_atomic(x: Any) -> bool:
+    return isinstance(x, atomic_types)
+
+
+def _is_pd_series(x: Any) -> bool:
+    try:
+        import pandas as pd
+    except BaseException:
+        return False
+    return isinstance(x, pd.Series)
+
+
+def _is_pd_frame(x: Any) -> bool:
+    try:
+        import pandas as pd
+    except BaseException:
+        return False
+    return isinstance(x, pd.DataFrame)
+
+
+def _is_np_array(x: Any) -> bool:
+    try:
+        import numpy as np
+    except ImportError:
+        return False
+    return isinstance(x, np.ndarray)
+
+
+def _is_sklearn_estimator(x: Any) -> bool:
+    try:
+        # Check that sklearn was successfully imported
+        _ = BaseEstimator
+        _ = BallTree
+    except NameError:
+        return False
+    return isinstance(x, (BaseEstimator, BallTree))
+
+
+def _is_torch(x: Any) -> bool:
+    try:
+        import torch
+    except ImportError:
+        return False
+    return isinstance(x, torch.Tensor)
+
+
+def _table_from_series(x: Any) -> pa.Table:
+    try:
+        import pandas as pd
+    except ImportError:
+        raise RuntimeError
+    # Writing them in as columns makes the index names
+    #   available as schema.
+    # This method strips the index.
+    return pa.Table.from_pandas(pd.DataFrame({x.name: x}))
+
+
+def _np_save(x: Any, flpath: str, fs: FileSystem) -> None:
+    try:
+        import numpy as np
+    except ImportError:
+        raise RuntimeError
+    with fs.open_output_stream(flpath) as f:
+        np.save(f, x)
+
+
+def _joblib_save(x: Any, flpath: str, fs: FileSystem) -> None:
+    try:
+        import joblib  # noqa: F811
+    except ImportError:
+        raise RuntimeError
+    with fs.open_output_stream(flpath) as f:
+        joblib.dump(x, f)
+
+
+def _torch_save(x: Any, flpath: str, filesystem: FileSystem) -> None:
+    try:
+        import ibis
+    except ImportError:
+        raise RuntimeError
+    pq.write_table(
+        ibis.memtable(x).to_pyarrow(),
+        flpath,
+        filesystem=filesystem,
+    )
 
 
 def save(  # noqa: C901
@@ -81,22 +168,19 @@ def save(  # noqa: C901
     file_info = filesystem.get_file_info(location)
     if file_info.type.name == "Directory":
         raise RuntimeError(f"Cannot save on top of an existing directory ({location}).")
-    if isinstance(thing, (float, int, str)):
+    if _is_atomic(thing):
         pq.write_table(
             pa.Table.from_pylist([{"item": thing}]),
             os.path.join(prefix, f"ts-atomic-{item}.parquet"),
             filesystem=filesystem,
         )
-    elif isinstance(thing, pd.Series):
-        # Writing them in as columns makes the index names
-        #   available as schema.
-        # This method strips the index.
+    elif _is_pd_series(thing):
         pq.write_table(
-            pa.Table.from_pandas(pd.DataFrame({thing.name: thing})),
+            _table_from_series(thing),
             os.path.join(prefix, f"ts-series-{item}.parquet"),
             filesystem=filesystem,
         )
-    elif isinstance(thing, pd.DataFrame):
+    elif _is_pd_frame(thing):
         pq.write_table(
             pa.Table.from_pandas(thing),
             os.path.join(prefix, f"ts-dataset-{item}.parquet"),
@@ -147,16 +231,14 @@ def save(  # noqa: C901
             os.makedirs(tmppath, exist_ok=True)
             for i, v in enumerate(thing):
                 save(v, os.path.join(tmppath, f"{i}"), filesystem=filesystem)
-    elif isinstance(thing, np.ndarray):
-        with filesystem.open_output_stream(
-            os.path.join(prefix, f"ts-numpy-{item}.npy")
-        ) as f:
-            np.save(f, thing)
-    elif isinstance(thing, (BaseEstimator, BallTree)):
-        with filesystem.open_output_stream(
-            os.path.join(prefix, f"ts-skmodel-{item}.joblib")
-        ) as f:
-            joblib.dump(thing, f)
+    elif _is_np_array(thing):
+        _np_save(thing, os.path.join(prefix, f"ts-numpy-{item}.npy"), filesystem)
+    elif _is_sklearn_estimator(thing):
+        _joblib_save(
+            thing, os.path.join(prefix, f"ts-skmodel-{item}.joblib"), filesystem
+        )
+    elif _is_torch(thing):
+        _torch_save(thing, os.path.join(prefix, f"ts-torch-{item}.parquet"), filesystem)
     else:  # If all else fails.
         with filesystem.open_output_stream(
             os.path.join(prefix, f"ts-thing-{item}.pickle")

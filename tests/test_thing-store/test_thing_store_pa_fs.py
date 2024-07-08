@@ -28,7 +28,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.neighbors import BallTree
 from typing import Any, Dict, Union
 
-
 test_filesystems = [  # nosec: These are NOT security violations.
     (LocalFileSystem, dict()),  # This is a local filesystem.
     (
@@ -167,9 +166,7 @@ def filesystem_metadata(source_filesystem):
     new_path = os.path.join(path, tgt_prefix)
     return new_path, FileSystemThingStore(
         metadata_filesystem=fs,
-        metadata_file=os.path.join(new_path, "metadata.parquet"),
-        metadata_lockfile=os.path.join(new_path, "metadata-lockfile.parquet"),
-        output_location=os.path.join(new_path, "output_location"),
+        managed_location=new_path,
     )
 
 
@@ -178,7 +175,7 @@ def test_metadata_locking(filesystem_metadata):
     new_path, ts = filesystem_metadata
     assert (
         not ds.dataset(
-            os.path.join(new_path, "metadata-lockfile.parquet"),
+            os.path.join(new_path, "metadata-lock.parquet"),
             filesystem=ts._metadata_fs,
         )
         .to_table()
@@ -188,7 +185,7 @@ def test_metadata_locking(filesystem_metadata):
     _lock_metadata(ts)
     assert (
         ds.dataset(
-            os.path.join(new_path, "metadata-lockfile.parquet"),
+            os.path.join(new_path, "metadata-lock.parquet"),
             filesystem=ts._metadata_fs,
         )
         .to_table()
@@ -199,7 +196,7 @@ def test_metadata_locking(filesystem_metadata):
     _unlock_metadata(ts)
     assert (
         not ds.dataset(
-            os.path.join(new_path, "metadata-lockfile.parquet"),
+            os.path.join(new_path, "metadata-lock.parquet"),
             filesystem=ts._metadata_fs,
         )
         .to_table()
@@ -523,6 +520,53 @@ def _ordered(obj):
         return sorted(_ordered(x) for x in obj)
     else:
         return obj
+
+
+@pytest.mark.usefixtures("source_filesystem")
+def test_update_and_delete(source_filesystem):
+    fs, path = source_filesystem
+    tgt_prefix = "test_item_update_and_delete"
+    new_path = os.path.join(path, tgt_prefix, "silly")
+    fs.create_dir(new_path)
+    test_ts = FileSystemThingStore(metadata_filesystem=fs, managed_location=new_path)
+    _df = pd.DataFrame({"A": [1, 2, 3], "B": ["one", "two", "three"]})
+    _df2 = pd.DataFrame({"X": [4, 5, 6], "Y": ["four", "five", "six"]})
+    file_id = "View_TEST_" + str(0)
+    _metadata = {"FILE_ID": file_id}
+    # Log it into the test_mm
+    test_ts.log(metadata=_metadata, dataset=_df)
+    _parameter = {
+        "Completion": "Incomplete.",
+        "Review": "Not Reviewed",
+        "Credibility": "Not Credible",
+    }
+    _metrics = {
+        "Runtime": 1.24,
+        "MemoryRequired": 234342,
+        "DataSizeGB": 3.56,
+    }
+    _artifacts_folder = os.getcwd() + "/tests"
+    test_ts._update(
+        "View_TEST_0",
+        dataset=_df2,
+        parameters=_parameter,
+        metrics=_metrics,
+        artifacts_folder=_artifacts_folder,
+    )
+    assert test_ts.load("View_TEST_0").equals(_df2)
+    assert test_ts.get_parameters("View_TEST_0") == _parameter
+    assert test_ts.get_metrics("View_TEST_0") == _metrics
+    assert test_ts.get_metadata("View_TEST_0")["TS_HAS_ARTIFACTS"]
+    test_ts._update("View_TEST_0", parameters=None, metrics=None, artifacts_folder=None)
+    assert not test_ts.get_parameters("View_TEST_0")
+    assert not test_ts.get_metrics("View_TEST_0")
+    assert not test_ts.get_metadata("View_TEST_0")["TS_HAS_ARTIFACTS"]
+    test_ts._delete("View_TEST_0")
+    assert not test_ts.get_metadata("View_TEST_0")["DATASET_VALID"]
+    assert not test_ts.get_parameters("View_TEST_0")
+    assert not test_ts.get_metrics("View_TEST_0")
+    test_ts._delete("View_TEST_0")
+    assert "View_TEST_0" not in list(test_ts.browse()["FILE_ID"])
 
 
 @pytest.mark.usefixtures("source_filesystem")

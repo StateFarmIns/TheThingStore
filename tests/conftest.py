@@ -186,8 +186,7 @@ def integration_test(testing_data: _test_data_type) -> None:
 
         This tests thing_store API and validates that a thing_store
         construct behaves appropriately. This is called on specific
-        instances of a ThingStore construct (such as the MLFlow
-        version.)
+        instances of a ThingStore construct.
 
         Parameters
         ----------
@@ -380,12 +379,10 @@ def integration_test(testing_data: _test_data_type) -> None:
         assert newdata.equals(pd.DataFrame([{"silly": "newstuff"}])), newdata
         # list artifacts
         assert local_thing_store.list_artifacts(file_id) == []
-        # parameters - MLFlow removes dtypes.
         # TODO: Fix this with schema enforcement...
         params = local_thing_store.get_parameters(file_id)
         params["stupid"] = int(float(params["stupid"]))
         assert params == {"stupid": 1}
-        # thing_store - MLFlow removes dtypes.
         # TODO: Fix this with schema enforcement...
         _metadata = local_thing_store.get_metadata(file_id)
         _metadata = {k: str(v) for k, v in _metadata.items()}
