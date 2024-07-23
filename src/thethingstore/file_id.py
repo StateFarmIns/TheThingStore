@@ -29,9 +29,12 @@ def parse_fileid(fileid: str) -> Dict[str, Union[str, Dict[str, str]]]:
     Thing Store components, for documentation.
 
     Structure: `<scheme>//<netloc>/<path>/#<fragment>/?<query>`
-    Example: `https://www.example.com/path/to/page#section2?param1=value1&param2=value2`
 
-    Example of some qualified fileids may be found in the examples
+    Example of an HTTP file schema: `https://www.example.com/path/to/page#section2?param1=value1&param2=value2`
+    Example of a FILEID file schema:
+        `fileid://MyMadeUpFile/FileSystemThingStore?metadata_filesystem=LocalFileSystem&managed_location=.#1`
+
+    More examples of qualified fileids may be found in the examples
     and within the tests.
 
     1. scheme: The scheme represents the protocol or application
@@ -119,7 +122,7 @@ def parse_fileid(fileid: str) -> Dict[str, Union[str, Dict[str, str]]]:
     ...     assert components['implementation'] == 'FileSystemThingStore'
     ...     assert isinstance(components['implementation_params'], dict)
     ...     _par = components['implementation_params']
-    ...     assert set(_par.keys()) == {'metadata_filesystem', 'metadata_file', 'metadata_lockfile', 'output_location'}
+    ...     assert set(_par.keys()) == {'metadata_filesystem', 'managed_location'}
     ...     assert components['fileversion'] == '1'
     """
     output: Dict[str, Union[str, Dict[str, str]]] = {}

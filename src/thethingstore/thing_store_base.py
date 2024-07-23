@@ -6,20 +6,23 @@ dataset include:
 * The capability to *remove* from the dataset by file identifier.
 * The capability to *load* from the dataset by file identifier or schema.
 """
+
 import logging
 import numpy as np
 import os
 import pandas as pd
 import pyarrow.dataset as ds
 import uuid
+
 from thethingstore.api import load as tsl, error as tse, data_hash as tsh
 from thethingstore.types import Dataset, FileId, Parameter, Metadata, Metric
 from thethingstore.thing_store_elements import Metadata as MetadataElements
 from thethingstore.thing_store_log import log as tslog
+
 from pyarrow import Table
 from pyarrow.fs import FileSystem, LocalFileSystem
 from tempfile import TemporaryDirectory
-from typing import Any, Mapping, List, Optional, Type, Union
+from typing import Any, Mapping, List, Optional, Type, Union, Callable
 
 
 logger = logging.getLogger(__name__)
@@ -39,11 +42,13 @@ class ThingStore:
         local_storage_folder: Optional[str] = None,
     ) -> None:
         self._tempdir = None
+
         if local_storage_folder is None:
             self._tempdir = TemporaryDirectory()
             local_storage_folder = self._tempdir.name
         self._local_storage_folder = local_storage_folder
         self._local_fs = LocalFileSystem()
+
         if metadata_filesystem is None:
             metadata_filesystem = self._local_fs
         self._metadata_fs = metadata_filesystem
@@ -72,10 +77,10 @@ class ThingStore:
 
     def load(
         self,
-        file_identifier: Union[FileId, List[FileId], Dataset, List[Dataset]],
+        file_identifier: Union[FileId, List[FileId], Dataset, List[Dataset]],  # type: ignore
         output_format: str = "pandas",
         **kwargs: Any,
-    ) -> Dataset:
+    ) -> Dataset:  # type: ignore
         """Read a file from the Thing Store.
 
         This returns either a representation of the dataset or the
@@ -124,9 +129,10 @@ class ThingStore:
         self,
         dataset: Optional[Dataset] = None,
         parameters: Optional[Mapping[str, Parameter]] = None,
-        metadata: Optional[Mapping[str, Optional[Metadata]]] = None,
-        metrics: Optional[Mapping[str, Metric]] = None,
+        metadata: Optional[Mapping[str, Optional[Metadata]]] = None,  # type: ignore
+        metrics: Optional[Mapping[str, Metric]] = None,  # type: ignore
         artifacts_folder: Optional[str] = None,
+        embedding: Optional[Dataset] = None,
     ) -> FileId:
         raise NotImplementedError("Overload me!")
 
@@ -134,10 +140,12 @@ class ThingStore:
         self,
         dataset: Optional[Dataset] = None,
         parameters: Optional[Mapping[str, Parameter]] = None,
-        metadata: Optional[Mapping[str, Optional[Metadata]]] = None,
-        metrics: Optional[Mapping[str, Metric]] = None,
+        metadata: Optional[Mapping[str, Optional[Metadata]]] = None,  # type: ignore
+        metrics: Optional[Mapping[str, Metric]] = None,  # type: ignore
         artifacts_folder: Optional[str] = None,
+        embedding: Optional[Dataset] = None,
         force: bool = False,
+        **kwargs: dict,
     ) -> FileId:
         """Store a file in the Thing Store and associated metadata.
 
@@ -159,6 +167,8 @@ class ThingStore:
             this file.
         artifacts_folder: Optional[str] = None
             This is a folderpath that may be collected and logged with this file.
+        embedding: Optional[Dataset] = None
+            This is a (set of) two dimensional representation(s)
 
         Returns
         -------
@@ -172,7 +182,9 @@ class ThingStore:
             metadata=metadata,
             metrics=metrics,
             artifacts_folder=artifacts_folder,
+            embedding=embedding,
             force=force,
+            **kwargs,
         )
 
     def _browse(self, **kwargs: Any) -> Table:
@@ -244,8 +256,8 @@ class ThingStore:
                 raise Exception("SOMETHING IS WRONG!")
 
     def _scrape_metadata(
-        self, metadata_elements: Mapping[str, Optional[Metadata]]
-    ) -> Mapping[str, Optional[Metadata]]:
+        self, metadata_elements: Mapping[str, Optional[Metadata]]  # type: ignore
+    ) -> Mapping[str, Optional[Metadata]]:  # type: ignore
         """Investigate, update, and return standard metadata."""
         # Update the metadata with default elements.
         # Note the nosec? Bandit is cranky about these, Mypy is cranky
@@ -369,12 +381,12 @@ class ThingStore:
         params = {k: v for k, v in params.items() if v is not None}
         return params  # type: ignore  # Figure out why mypy is getting tetchy.
 
-    def _get_metadata(self, file_identifier: FileId) -> Mapping[str, Metadata]:
+    def _get_metadata(self, file_identifier: FileId) -> Mapping[str, Metadata]:  # type: ignore
         raise NotImplementedError("Overload me!")
 
     def get_metadata(
         self, file_identifier: FileId, drop_none: bool = True
-    ) -> Mapping[str, Metadata]:
+    ) -> Mapping[str, Metadata]:  # type: ignore
         """Return latest metadata associated with a FILE_ID.
 
         Note that this, by default, does not return any fields with None.
@@ -397,14 +409,28 @@ class ThingStore:
         """
         _metadata = self._get_metadata(file_identifier=file_identifier)
         if drop_none:
-            _metadata = {k: v for k, v in _metadata.items() if v is not None}
-        # MyPy doesn't like dict unpacking. Oh well.
-        return MetadataElements(**_metadata).dict()  # type: ignore
 
-    def _get_metrics(self, file_identifier: FileId) -> Mapping[str, Metric]:
+            def _match_none(x: Any) -> bool:
+                if x is None:
+                    return True
+                elif x == "None":
+                    return True
+                else:
+                    return False
+
+            _metadata = {k: v for k, v in _metadata.items() if not _match_none(v)}
+        # MyPy doesn't like dict unpacking. Oh well.
+        try:
+            return MetadataElements(**_metadata).dict()  # type: ignore
+        except BaseException:
+            raise Exception(
+                f"Metadata retrieval failure: {_metadata}, drop_none: {drop_none}"
+            )
+
+    def _get_metrics(self, file_identifier: FileId) -> Mapping[str, Metric]:  # type: ignore
         raise NotImplementedError("Overload me!")
 
-    def get_metrics(self, file_identifier: FileId) -> Mapping[str, Metric]:
+    def get_metrics(self, file_identifier: FileId) -> Mapping[str, Metric]:  # type: ignore
         """Return metrics associated with a FILE_ID.
 
         This drops any metrics which return NaN or Null.
@@ -462,6 +488,72 @@ class ThingStore:
             return None
         return ds.dataset(file_handles, **kwargs)
 
+    def get_function(self, file_identifier: FileId) -> Optional[Callable]:
+        """Return function associated with a FILE_ID.
+
+        Parameters
+        ----------
+        file_identifier: FileId
+            A file identifier understood by the Thing Store.
+
+        Returns
+        -------
+        function: Union[Callable, Type[None]]
+            The function associated with the FILE_ID.
+            None if no function exists.
+        """
+        return self._get_function(file_identifier=file_identifier)
+
+    def _get_function(self, file_identifier: FileId) -> Optional[Callable]:
+        """Return function associated with a FILE_ID.
+
+        Parameters
+        ----------
+        file_identifier: FileId
+            A file identifier understood by the Thing Store.
+
+        Returns
+        -------
+        function: Union[Callable, Type[None]]
+            The function associated with the FILE_ID.
+            None if no function exists.
+        """
+        raise NotImplementedError("Overload Me!")
+
+    def get_embedding(self, file_identifier: FileId, **kwargs: Any) -> Dataset:
+        """Return embedding associated with a FILE_ID.
+
+        Parameters
+        ----------
+        file_identifier: FileId
+            A file identifier understood by the Thing Store.
+        **kwargs: Optional[Any]:
+            Additional keyword arguments forwarded into load.
+
+        Returns
+        -------
+        embedding: Union[ds.Dataset, Type[None]]
+            The embedding associated with the FILE_ID.
+            None if no function exists.
+        """
+        return self._get_embedding(file_identifier=file_identifier, **kwargs)
+
+    def _get_embedding(self, file_identifier: FileId) -> Dataset:
+        """Return embedding associated with a FILE_ID.
+
+        Parameters
+        ----------
+        file_identifier: FileId
+            A file identifier understood by the Thing Store.
+
+        Returns
+        -------
+        embedding: Union[ds.Dataset, Type[None]]
+            The embedding associated with the FILE_ID.
+            None if no function exists.
+        """
+        raise NotImplementedError("Overload Me!")
+
     def get_metadata_hash(self, return_type: str = "hex") -> Union[str, bytes, int]:
         """Returns a md5 digest of the latest metadata dataset
 
@@ -518,11 +610,15 @@ class ThingStore:
         elif "FILE_VERSION" in local_keys.intersection(
             remote_keys
         ):  # Can check version.
-            if local_version["FILE_VERSION"] < remote_version["FILE_VERSION"]:
+            if str(local_version["FILE_VERSION"]) < str(remote_version["FILE_VERSION"]):
                 up_to_date = False
-            elif local_version["FILE_VERSION"] == remote_version["FILE_VERSION"]:
+            elif str(local_version["FILE_VERSION"]) == str(
+                remote_version["FILE_VERSION"]
+            ):
                 up_to_date = True
-            elif local_version["FILE_VERSION"] > remote_version["FILE_VERSION"]:
+            elif str(local_version["FILE_VERSION"]) > str(
+                remote_version["FILE_VERSION"]
+            ):
                 logger.warning(
                     f"{file_identifier} higher local file version than remote."
                 )
@@ -606,3 +702,41 @@ class ThingStore:
                 Artifacts: {_artifacts}
                 """,
             ) from e
+
+    def delete(self, file_id: FileId) -> None:
+        """Delete a file.
+
+        Calling delete upon any individual file will accomplish one of two things, depending on the current state:
+        * If the file is valid `(DATASET_VALID / THING_VALID == True)` this will log a
+        new version of the file, with metadata only, and with DATASET_VALID set to False.
+        * If the file is not valid `(DATASET_VALID / THING_VALID == False)` this will
+        destructively remove that file (both metadata and contents.)
+
+        Parameters
+        ----------
+        file_id: FileID
+            This is the identifier for the file in the ThingStore.
+        """
+        self._delete(file_id=file_id)
+
+    def _delete(self, file_id: FileId) -> None:
+        raise NotImplementedError
+
+    def update(self, file_id: FileId, **kwargs: Any) -> None:
+        """Update a file.
+
+        Update is a convenience function which logs a copy of the (by default) most
+        recent version of a FILE_ID with specified components updated.
+        This copies the previous object and *only* updates the specified component.
+
+        Parameters
+        ----------
+        file_id: FileID
+            This is the identifier for the file in the ThingStore.
+        **kwargs
+            Specific components of the file that are passed into _update
+        """
+        self._update(file_id=file_id, **kwargs)
+
+    def _update(self, file_id: FileId, **kwargs: Any) -> None:
+        raise NotImplementedError

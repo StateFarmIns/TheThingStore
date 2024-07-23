@@ -19,20 +19,11 @@ Inherit in the pafs / other branches.
 # from pyarrow.fs import LocalFileSystem, S3FileSystem
 # from managedmetadata.metadata_base import ManagedMetadata
 # from managedmetadata.metadata_elements import Metadata
-# from managedmetadata.metadata_mlflow import MLFlowManagedMetadata
 # from managedmetadata.metadata_node import MMNode
 # from managedmetadata.metadata_pa_fs import FileSystemManagedMetadata
 
 
 # metadata_sets = [
-#     (
-#         MLFlowManagedMetadata,
-#         {
-#             "tracking_uri": "tracking",
-#             "local_storage_folder": "local_storage",
-#         },
-#         "MLFlow",
-#     ),
 #     (
 #         FileSystemManagedMetadata,
 #         {

@@ -9,7 +9,6 @@ import pyarrow as pa
 from datetime import datetime
 from pyarrow.fs import LocalFileSystem, S3FileSystem
 from thethingstore.thing_store_pa_fs import FileSystemThingStore
-from thethingstore.thing_store_mlflow import MLFlowThingStore
 from thethingstore.api import data_hash as tsh
 
 
@@ -66,20 +65,10 @@ big_datasets = [
 
 thing_store_sets = [
     (
-        MLFlowThingStore,
-        {
-            "tracking_uri": "tracking",
-            "local_storage_folder": "local_storage",
-        },
-        "MLFlow",
-    ),
-    (
         FileSystemThingStore,
         {
             "metadata_filesystem": LocalFileSystem(),
-            "metadata_file": "metadata.parquet",
-            "metadata_lockfile": "metadata-lockfile.parquet",
-            "output_location": "output",
+            "managed_location": "output",
         },
         "LocalFilesystem",
     ),
@@ -89,9 +78,7 @@ thing_store_sets = [
             "metadata_filesystem": S3FileSystem(
                 endpoint_override="http://localhost:5000", allow_bucket_creation=True
             ),
-            "metadata_file": "metadata.parquet",
-            "metadata_lockfile": "metadata-lockfile.parquet",
-            "output_location": "output",
+            "managed_location": "output",
         },
         "S3Filesystem",
     ),
@@ -202,9 +189,6 @@ def test_dataset_digest(remote_thing_store, local_thing_store, testing_data):
 
     # Pull back the metadata, but drop the last row
     df_remote = remote_thing_store.browse()
-    # If using MLFlow, make sure the rows are sorted as expected
-    if isinstance(remote_thing_store, MLFlowThingStore):
-        df_remote = df_remote.sort_values(by=["FILE_VERSION"])
     df_remote = df_remote[:-1]
     df_local = local_thing_store.browse()[:-1]
 
@@ -285,9 +269,7 @@ def measure_metadata():
     with tempfile.TemporaryDirectory() as t:
         ts = FileSystemThingStore(
             metadata_filesystem=LocalFileSystem(),
-            metadata_file=os.path.join(t, "metadata.parquet"),
-            metadata_lockfile=os.path.join(t, "metadata-lock.parquet"),
-            output_location=os.path.join(t, "output"),
+            managed_location=os.path.join(t, "output"),
         )
         yield ts
         timing = ts.browse()

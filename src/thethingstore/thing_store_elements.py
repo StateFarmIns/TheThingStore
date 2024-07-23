@@ -8,7 +8,7 @@ from pydantic import BaseModel, Extra, Field
 
 
 class Metadata(BaseModel, extra=Extra.allow):
-    """DataModel representing a set of individual metadata."""
+    """DataModel representing a set of individual metadata for a thing."""
 
     FILE_ID: FileId = Field(default=None, description="The unique FileID")
     FILE_VERSION: int = Field(default=1, description="The File Version")
@@ -19,23 +19,23 @@ class Metadata(BaseModel, extra=Extra.allow):
         default=True, description="Whether this element should be queued for removal."
     )
     TS_HAS_DATASET: bool = Field(
-        default=False, description="Whether or not the node has dataset."
+        default=False, description="Whether or not the thing has dataset."
     )
     TS_HAS_PARAMETERS: bool = Field(
-        default=False, description="Whether or not the node has parameters."
+        default=False, description="Whether or not the thing has parameters."
     )
     TS_HAS_METADATA: bool = Field(
-        default=False, description="Whether or not the node has metadata."
+        default=False, description="Whether or not the thing has metadata."
     )
     TS_HAS_ARTIFACTS: bool = Field(
-        default=False, description="Whether or not the node has artifacts."
+        default=False, description="Whether or not the thing has artifacts."
     )
     TS_HAS_METRICS: bool = Field(
-        default=False, description="Whether or not the node has metrics."
+        default=False, description="Whether or not the thing has metrics."
     )
     TS_HAS_FUNCTION: bool = Field(
-        default=False, description="Whether or not the node has function."
+        default=False, description="Whether or not the thing has function."
     )
     TS_HAS_EMBEDDING: bool = Field(
-        default=False, description="Whether or not the node has embedding."
+        default=False, description="Whether or not the thing has embedding."
     )

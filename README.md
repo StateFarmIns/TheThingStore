@@ -1,39 +1,19 @@
-# TODO
+# The Thing Store
 
 You've heard of an [object store](https://cloud.google.com/learn/what-is-object-storage), you've heard of a [feature store](https://learn.microsoft.com/en-us/azure/databricks/machine-learning/feature-store/), you might have even heard of an [embedding / vector store](https://www.embedding.store/), but what's next?
 
-What about anything?
+What about any Thing?
 
-## The 'Thing' Store
+## What in the World?
 
-Look, you've got something that you think is important and you might want to reuse it.
+1. Walk through [this explanation](docs/01_thethingstore.md) of The Thing Store to understand broadly what it is.
 
-Maybe you want to store that in s3. Maybe you want to store it in Athena. Maybe you want to store that on your local computer.
+2. Walk through [this summary](docs/02_usethingstore.md) of how to use a Thing Store to understand broadly how to use it.
 
-Does it matter?
+3. Walk through [this detailed explanation](docs/03_thingstoredatastructures.md) of what the data structures are within the Thing Store, and what their properties look like, to understand the Thing Store at a fundamental level.
 
-You should be able to just say 'give me my thing' and get it back, regardless of what it looks like.
+4. Walk through [this short explanation](docs/04_processdesign.md) to get an idea of how the Thing Store is useful for process design.
 
-How do you do that?
+5. Walk through [this rant](docs/05_butwhy.md) to hear the mad ramblings of someone who feels strongly about why the Thing Store is valuable.
 
-You say, that for any *Thing*, it might have a few important flavors of information:
-
-* Metadata: You might have some labels that you think are appropriate. 'Funny=True', or cat color is green, or whatever. This is a mapping of keys to values.
-* Parameters: This thing will use these to run, or *did* use these to run.
-* Metrics: This thing measured these metrics.
-* Dataset: This thing is associated with a view of a tabular dataset.
-* Artifacts: I need these files, too.
-* Embedding: This thing is represented with this embedded representation. (TODO)
-* Function: This thing is represented with some functionality. (TODO)
-
-## Development Plan
-
-1. Get devcontainer up and running.
-2. Get pipeline up and running.
-3. Produce documentation.
-4. Split branches for each implementation.
-5. Complete CRUD interface for each implementation
-6. Deploy interface for Data Management
-7. Retool the interface to serve via pyarrow streaming parquet lake, regardless.
-8. Fully bake function and embedding components
-9. Alternative backend implementations and improvements
+6. Check out this [short list](docs/06_planning_and_roadmapping.md) to get an idea of what our roadmap looks like.

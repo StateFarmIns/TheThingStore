@@ -10,26 +10,17 @@ from datetime import datetime
 from pyarrow.fs import LocalFileSystem, S3FileSystem
 from thethingstore.thing_store_base import ThingStore
 from thethingstore.thing_store_elements import Metadata
-from thethingstore.thing_store_mlflow import MLFlowThingStore
 from thethingstore.thing_store_pa_fs import FileSystemThingStore
+from thethingstore.thing_store_log import log_function
+from typing import Callable
 
 
 thing_store_sets = [
     (
-        MLFlowThingStore,
-        {
-            "tracking_uri": "tracking",
-            "local_storage_folder": "local_storage",
-        },
-        "MLFlow",
-    ),
-    (
         FileSystemThingStore,
         {
             "metadata_filesystem": LocalFileSystem(),
-            "metadata_file": "metadata.parquet",
-            "metadata_lockfile": "metadata-lockfile.parquet",
-            "output_location": "output",
+            "managed_location": "output",
         },
         "LocalFilesystem",
     ),
@@ -39,9 +30,7 @@ thing_store_sets = [
             "metadata_filesystem": S3FileSystem(
                 endpoint_override="http://localhost:5000", allow_bucket_creation=True
             ),
-            "metadata_file": "metadata.parquet",
-            "metadata_lockfile": "metadata-lockfile.parquet",
-            "output_location": "output",
+            "managed_location": "output",
         },
         "S3Filesystem",
     ),
@@ -248,3 +237,9 @@ def test_component_logging(
                 component=component,
                 base_path=test_path,
             )
+    # Test function
+    file_id = log_function(
+        remote_thing_store, "tests/test_data/workflow.py", dry_fire=False
+    )
+    function = remote_thing_store.get_function(file_id)
+    assert isinstance(function, Callable)

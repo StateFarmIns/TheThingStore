@@ -1,4 +1,21 @@
-"""Initialization for the first time!"""
+"""First time init and high level docs.
+
+The Thing Store API is implemented on top of a FileSystem, but
+can describe arbitrary information effectively in a manner that
+allows for it to be considered within the same semantic scope.
+
+The layout of this code is as follows:
+
+* `api`: Saving and loading utilities.
+* `file_id.py`: This exposes the FILE_ID schema definition and simple utilities.
+* `thing_components.py`: This exposes the mathematical and software definition of what a Thing is.
+* `thing_node.py`: This exposes the 'ThingNode'; a class which can be dropped onto a fileid to produce
+    a lazy-load ticket style representation of a Thing.
+* `thing_store_elements.py`: This exposes a default metadata standard implemented in TheThingStore.
+    All metadata datasets have this information at minimum.
+* `thing_store_log.py`: This exposes the methods by which the ThingStore 'saves' things into a layer.
+* `types.py`: Contains extra typing information (deprecate in place of components?)
+"""
 import logging
 from thethingstore.thing_store_base import ThingStore
 from thethingstore.thing_store_pa_fs import FileSystemThingStore
@@ -8,57 +25,6 @@ from typing import Dict, Type
 logger = logging.getLogger(__name__)
 
 ####################################################################
-#                      Conditional Imports                         #
-# Todo - Move these into their independent loading components.     #
-####################################################################
-
-try:
-    import sklearn  # noqa: F401
-except ImportError:
-    logger.warning(
-        """SKLearn is not installed.
-    If you wish to save and load scikit-learn models please run
-    `pip install thethingstore[models]`.
-    """
-    )
-
-try:
-    import joblib  # noqa: F401
-except ImportError:
-    logger.warning(
-        """Joblib is not installed.
-    If you wish to save and load scikit-learn models please run
-    `pip install thethingstore[models]`.
-    """
-    )
-
-try:
-    import geopandas  # noqa: F401
-except ImportError:
-    logger.warning(
-        """GeoPandas is not installed.
-    If you wish to save and load shapes / layers please run
-    `pip install thethingstore[shapes]`.
-    """
-    )
-
-try:
-    import mlflow  # noqa: F401
-    from thethingstore.thing_store_mlflow import MLFlowThingStore
-
-    _mlflow = True
-except ImportError:
-    logger.warning(
-        """MLFlow is not installed.
-    If you wish to save and load information from an MLFlow Thing Store
-    please run
-    `pip install thethingstore[mlflow]`.
-    """
-    )
-    _mlflow = False
-
-
-####################################################################
 #                      Implemented TS Data                         #
 ####################################################################
 
@@ -66,16 +32,8 @@ _implemented_ts: Dict[str, Type] = {
     "FileSystemThingStore": FileSystemThingStore,
 }
 
-if _mlflow:
-
-    _implemented_ts.update(MLFlowThingStore=MLFlowThingStore)
-    __all__ = [
-        "FileSystemThingStore",
-        "MLFlowThingStore",
-    ]
-else:
-    __all__ = [
-        "FileSystemThingStore",
-    ]
+__all__ = [
+    "FileSystemThingStore",
+]
 
 __all__ += ["api", "ThingStore", "_implemented_ts", "file_id"]

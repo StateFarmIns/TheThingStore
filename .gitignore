@@ -15,14 +15,20 @@ pytest-report.html
 test
 banditfindings.html
 assets
+tmp
+
 ## Packaging things
 **.egg-info**
 build
-## MLFlow things
-mlruns
+
 ## VSCode things
 .vscode
+
 ## Reporting
 reports
+
 ## Sphinx
 docs/_build
+
+## Build stuff
+build
