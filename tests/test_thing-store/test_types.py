@@ -1,7 +1,8 @@
 """Test typing utilities."""
+
 import pyarrow.dataset as ds
 import pytest
-from thethingstore.types import get_info, _get_str_info, _unique
+from thethingstore._types import get_info, _get_str_info, _unique
 from thethingstore.api import error as tse
 from typing import Any
 
@@ -62,10 +63,12 @@ test_cases = [
 
 @pytest.mark.parametrize(("obj", "expectation"), test_cases)
 def test__get_str_info_success(obj: str, expectation: str) -> None:
+    """Test string info."""
     assert _get_str_info(obj) == expectation
 
 
 def test__get_str_info_failure() -> None:
+    """Test string info failure."""
     with pytest.raises(tse.ThingStoreLoadingError, match="suffix .stupid"):
         _get_str_info("stupid.stupid")
 
@@ -124,11 +127,12 @@ test_cases2 = [
 
 @pytest.mark.parametrize(("obj", "expectedtype"), test_cases2)
 def test_get_info(obj: Any, expectedtype: Any) -> None:
+    """Test get info."""
     assert get_info(obj) == expectedtype
 
 
 def test_get_info_fail() -> None:
-    """Test get_info error case"""
+    """Test get_info error case."""
     with pytest.raises(tse.ThingStoreTypeError, match="Type: <class 'int'>"):
         get_info(1)
 
@@ -150,8 +154,8 @@ test_cases3 = [
     (
         {
             "partition01": {
-                "a": {"file_{_}": "ParquetDocument" for _ in range(5)},
-                "b": {"file_{_}": "ParquetDocument" for _ in range(5)},
+                "a": {f"file_{_}": "ParquetDocument" for _ in range(5)},
+                "b": {f"file_{_}": "ParquetDocument" for _ in range(5)},
             }
         },
         {"ParquetDocument"},
@@ -166,5 +170,6 @@ def test__unique(obj: Any, expectation: Any) -> None:
 
 
 def test__unique_error() -> None:
+    """Test unique error."""
     with pytest.raises(NotImplementedError, match="get_info"):
         _unique(1)

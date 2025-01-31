@@ -1,4 +1,5 @@
 """Filesystem hidden utilities."""
+
 import urllib
 from pyarrow.fs import LocalFileSystem, FileSystem, FileSelector
 from typing import Any, Dict, List, Tuple, Union
@@ -7,7 +8,7 @@ from typing import Any, Dict, List, Tuple, Union
 def get_fs(
     filepath: Union[str, List[str], Dict[str, Any]]
 ) -> Tuple[Union[str, List[str], Dict[str, Any]], FileSystem]:
-    """Maps a filesystem if possible.
+    """Map filesystem if possible.
 
     This takes a url with a schema and unpacks that.
     This can understand things like 's3://path' and

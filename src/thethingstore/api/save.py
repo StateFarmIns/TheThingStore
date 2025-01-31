@@ -45,7 +45,7 @@ def _is_atomic(x: Any) -> bool:
 def _is_pd_series(x: Any) -> bool:
     try:
         import pandas as pd
-    except BaseException:
+    except ImportError:
         return False
     return isinstance(x, pd.Series)
 
@@ -53,7 +53,7 @@ def _is_pd_series(x: Any) -> bool:
 def _is_pd_frame(x: Any) -> bool:
     try:
         import pandas as pd
-    except BaseException:
+    except ImportError:
         return False
     return isinstance(x, pd.DataFrame)
 
@@ -128,7 +128,7 @@ def _torch_save(x: Any, flpath: str, filesystem: FileSystem) -> None:
 def save(  # noqa: C901
     thing: Any, location: str, filesystem: Optional[FileSystem] = None
 ) -> None:
-    """This implements a central wrapper for saving things.
+    """Implement a central wrapper for saving things.
 
     This saves your thing (hopefully intelligently.)
 

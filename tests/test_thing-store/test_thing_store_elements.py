@@ -1,4 +1,5 @@
-"""Test default metadata"""
+"""Test default metadata."""
+
 from thethingstore.thing_store_elements import Metadata
 
 

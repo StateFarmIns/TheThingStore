@@ -1,3 +1,5 @@
+"""Data hashing utility."""
+
 import hashlib
 import pandas as pd
 import boto3
@@ -18,7 +20,7 @@ def dataset_digest(  # noqa: C901
     key: Optional[str] = None,
     return_type: str = "hex",
 ) -> Union[str, bytes, int]:
-    """Accepts a Pandas DataFrame, PyArrow Table or a filepath and returns a md5 digest
+    """Return md5 digest given Pandas DataFrame, PyArrow Table, or filepath.
 
     Alternatively, this function accepts a boto3 client, bucket, and prefix (key) that points to a
     parquet document on s3.
@@ -58,11 +60,10 @@ def dataset_digest(  # noqa: C901
         - int | integer
 
     Returns
-    ----------
+    -------
     hash: Union[str, bytes, int]
         The dataset hash
     """
-
     hashobj = None
     # Are we working with a Pandas DataFrame?
     if isinstance(df, pd.DataFrame):

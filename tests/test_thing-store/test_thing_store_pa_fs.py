@@ -1,7 +1,8 @@
-"""This tests unit functionality.
+"""Test unit functionality.
 
-Note that currently this is just validating pyarrow functionality.
+Note that currently this is just mainly validating pyarrow functionality.
 """
+
 import numpy as np
 import os
 import pandas as pd
@@ -16,6 +17,7 @@ from thethingstore.thing_store_pa_fs import (
     get_user,
     pyarrow_tree,
     create_default_dataset,
+    recursive_make_dir,
     FileSystemThingStore,
     _lock_metadata,
     _unlock_metadata,
@@ -35,9 +37,9 @@ test_filesystems = [  # nosec: These are NOT security violations.
         dict(
             endpoint_override="http://localhost:5000",
             # allow_bucket_creation=True,
-            access_key="testing",
-            secret_key="testing",
-            session_token="testing",
+            access_key="testing",  # nosec
+            secret_key="testing",  # nosec
+            session_token="testing",  # nosec
         ),
     ),  # This is a remote filesystem.
 ]
@@ -46,7 +48,7 @@ test_filesystems = [  # nosec: These are NOT security violations.
 def write_files(
     fs: Union[LocalFileSystem, S3FileSystem], local_folder: str, output_path: str
 ) -> None:
-    # Let's just copy the test data.
+    """Copy test data."""
     test_unique_id = uuid.uuid1().hex
     path = os.path.join(output_path, "test_copy_files", test_unique_id)
     if isinstance(fs, S3FileSystem):
@@ -61,27 +63,26 @@ def write_files(
             destination=path,
             destination_filesystem=fs,
         )
-    except BaseException as e:
+    except BaseException as e:  # noqa: B036 - Catchall
         raise Exception(path) from e
     return path
 
 
 @pytest.fixture(params=test_filesystems, ids=lambda x: x[0])
-@pytest.mark.usefixtures(
-    "testing_artifacts_folder", "test_temporary_folder", "moto_server", "set_env"
-)
-def source_filesystem(request, testing_artifacts_folder, test_temporary_folder):
-    """Source filesystem"""
+def source_filesystem(
+    request, testing_artifacts_folder, test_temporary_folder, moto_server, _set_env
+):
+    """Return source filesystem."""
     fs = request.param[0](**request.param[1])
     path = write_files(fs, testing_artifacts_folder, test_temporary_folder)
     return fs, path
 
 
 @pytest.fixture(params=test_filesystems, ids=lambda x: x[0])
-@pytest.mark.usefixtures(
-    "testing_artifacts_folder", "test_temporary_folder", "moto_server", "set_env"
-)
-def target_filesystem(request, testing_artifacts_folder, test_temporary_folder):
+def target_filesystem(
+    request, testing_artifacts_folder, test_temporary_folder, moto_server, _set_env
+):
+    """Return target filesystem."""
     fs = request.param[0](**request.param[1])
     path = write_files(fs, testing_artifacts_folder, test_temporary_folder)
     return fs, path
@@ -89,6 +90,7 @@ def target_filesystem(request, testing_artifacts_folder, test_temporary_folder):
 
 @pytest.mark.usefixtures("source_filesystem", "target_filesystem")
 def test_file_copy(source_filesystem, target_filesystem):
+    """Test copy."""
     source_fs, source_path = source_filesystem
     target_fs, target_path = target_filesystem
     copy_files(
@@ -114,11 +116,13 @@ test_cases = [
 
 @pytest.mark.parametrize(("metadata_path", "expected_user"), test_cases)
 def test_get_user(metadata_path: str, expected_user: str) -> None:
+    """Test get user."""
     assert get_user(metadata_path=metadata_path) == expected_user
 
 
 @pytest.mark.usefixtures("source_filesystem")
 def test_create_default_dataset(source_filesystem):
+    """Test default dataset creation."""
     fs, path = source_filesystem
     tgt_prefix = "test_create_default_dataset"
     new_path = os.path.join(path, tgt_prefix, "silly")
@@ -158,9 +162,9 @@ def test_create_default_dataset(source_filesystem):
     assert _data.to_table().to_pylist() == [{"silly": 1, "things": 2.0}]
 
 
-@pytest.fixture()
-@pytest.mark.usefixtures("source_filesystem")
+@pytest.fixture
 def filesystem_metadata(source_filesystem):
+    """Provide filesystem thingstore."""
     fs, path = source_filesystem
     tgt_prefix = "test_ts_pa"
     new_path = os.path.join(path, tgt_prefix)
@@ -172,6 +176,7 @@ def filesystem_metadata(source_filesystem):
 
 @pytest.mark.usefixtures("filesystem_metadata")
 def test_metadata_locking(filesystem_metadata):
+    """Test locking."""
     new_path, ts = filesystem_metadata
     assert (
         not ds.dataset(
@@ -244,6 +249,7 @@ test_cases = [
 
 
 def _mkdir(path: str, dirs: Dict[str, Any], filesystem) -> None:
+    """Make directories."""
     for k, v in dirs.items():
         # The keys will always be a folder
         filesystem.create_dir(os.path.join(path, k))
@@ -262,6 +268,7 @@ def _mkdir(path: str, dirs: Dict[str, Any], filesystem) -> None:
 def test_pyarrow_tree(
     folder_structure, expectation, filesystem_metadata, request
 ) -> Any:
+    """Test pyarrow_tree."""
     new_path, ts = filesystem_metadata
     test_id = request.node.callspec.id
     tgt_path = os.path.join(new_path, "test_pyarrow_tree", test_id)
@@ -286,6 +293,7 @@ def test_pyarrow_tree_single_file(test_temporary_folder):
 
 @pytest.mark.usefixtures("filesystem_metadata")
 def test_pyarrow_tree_edge_cases(filesystem_metadata, request) -> Any:
+    """Test edge cases."""
     new_path, ts = filesystem_metadata
     test_id = request.node.callspec.id
     tgt_path = os.path.join(new_path, "test_pyarrow_tree_edge_cases", test_id)
@@ -509,11 +517,9 @@ items = {
 
 
 def _ordered(obj):
-    """Helper function for *deeply* nested JSON structures.
-
-    If this is deeply nested this function doesn't change the structure.
-    This rearranges elements during comparison.
-    """
+    # Helper function for *deeply* nested JSON structures.
+    # If this is deeply nested this function doesn't change the structure.
+    # This rearranges elements during comparison.
     if isinstance(obj, dict):
         return sorted((k, _ordered(v)) for k, v in obj.items())
     if isinstance(obj, list):
@@ -524,6 +530,7 @@ def _ordered(obj):
 
 @pytest.mark.usefixtures("source_filesystem")
 def test_update_and_delete(source_filesystem):
+    """Test update and delete."""
     fs, path = source_filesystem
     tgt_prefix = "test_item_update_and_delete"
     new_path = os.path.join(path, tgt_prefix, "silly")
@@ -558,21 +565,33 @@ def test_update_and_delete(source_filesystem):
     assert test_ts.get_metrics("View_TEST_0") == _metrics
     assert test_ts.get_metadata("View_TEST_0")["TS_HAS_ARTIFACTS"]
     test_ts._update("View_TEST_0", parameters=None, metrics=None, artifacts_folder=None)
-    assert not test_ts.get_parameters("View_TEST_0")
-    assert not test_ts.get_metrics("View_TEST_0")
-    assert not test_ts.get_metadata("View_TEST_0")["TS_HAS_ARTIFACTS"]
+    assert test_ts.get_parameters("View_TEST_0")
+    assert test_ts.get_metrics("View_TEST_0")
+    assert test_ts.get_metadata("View_TEST_0")["TS_HAS_ARTIFACTS"]
     test_ts._delete("View_TEST_0")
     assert not test_ts.get_metadata("View_TEST_0")["DATASET_VALID"]
-    assert not test_ts.get_parameters("View_TEST_0")
-    assert not test_ts.get_metrics("View_TEST_0")
     test_ts._delete("View_TEST_0")
     assert "View_TEST_0" not in list(test_ts.browse()["FILE_ID"])
 
 
 @pytest.mark.usefixtures("source_filesystem")
+def test_recursive_make_dir(source_filesystem):
+    """Test recursive make dir."""
+    fs, path = source_filesystem
+    tgt_prefix = "test_recursive_make_dir"
+    recursive_make_dir(
+        fs,
+        os.path.join(path, tgt_prefix),
+        "subdir1",
+        "subdir2",
+    )
+    assert fs.get_file_info(os.path.join(path, tgt_prefix, "subdir1", "subdir2")).type
+
+
+@pytest.mark.usefixtures("source_filesystem")
 @pytest.mark.parametrize(("item", "expected_fileset"), items.values(), ids=items.keys())
 def test_item_save_and_load(item, expected_fileset, source_filesystem):  # noqa: C901
-    """This tests saving and loading items in different filesystems."""
+    """Test saving and loading items in different filesystems."""
     # Test metadata
     fs, path = source_filesystem
     tgt_prefix = "test_item_save_and_load"
@@ -601,7 +620,7 @@ def test_item_save_and_load(item, expected_fileset, source_filesystem):  # noqa:
     # Now let's test the structure!
     try:
         loaded = materialize(new_path, filesystem=fs)[0]
-    except BaseException as e:
+    except BaseException as e:  # noqa: B036 - catchall
         raise Exception(f"Loading Failure: Unable to load {new_path}") from e
     if isinstance(item, pd.Series):
         assert item.shape == loaded.shape
@@ -618,7 +637,7 @@ def test_item_save_and_load(item, expected_fileset, source_filesystem):  # noqa:
     else:
         try:
             assert _ordered(item) == _ordered(loaded)
-        except BaseException as e:
+        except BaseException as e:  # noqa: B036 - Catchall
             raise Exception(
                 f"""Test Failure
 

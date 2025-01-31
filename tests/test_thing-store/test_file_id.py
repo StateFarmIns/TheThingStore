@@ -1,4 +1,5 @@
 """Test File ID utilities."""
+
 import pytest
 from thethingstore.api.error import FileIDError, ThingStoreGeneralError
 from thethingstore import (
@@ -58,10 +59,12 @@ test_cases = [
 
 @pytest.mark.parametrize(("flid", "expectation"), test_cases)
 def test_it(flid: str, expectation: Dict[str, str]) -> None:
+    """Test parsing."""
     assert file_id.parse_fileid(flid) == expectation
 
 
 def test_parse_fileid_failure() -> None:
+    """Test bad parse."""
     with pytest.raises(FileIDError, match="Not appropriate schema"):
         file_id.parse_fileid("ileid://stupd")
     with pytest.raises(FileIDError, match="No FileId"):
@@ -114,6 +117,7 @@ test_cases = [
 
 @pytest.mark.parametrize(("flidstr", "expectation"), test_cases)
 def test_data_model(flidstr: str, expectation: file_id.FileID) -> None:
+    """Test the data model."""
     components = file_id.parse_fileid(flidstr)
     _flid = file_id.FileID(**components)
     assert isinstance(_flid, file_id.FileID)

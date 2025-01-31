@@ -1,12 +1,15 @@
 """Utilities to build Graphs."""
+
 import tempfile
 import pandas as pd
 from thethingstore.thing_node import ThingNode, Nodes, Edges
-from thethingstore.types import DataLayer, FileId
+from thethingstore._types import DataLayer, FileId
 from typing import List, Optional, Tuple, Mapping, Union, Any
 
 
 class ThingGraph:
+    """Describe a graph of Things."""
+
     def __init__(self, thing_node: ThingNode, depth: int = 1):
         self._data_layer = thing_node._data_layer
         nodes, edges = get_graph(thing_node, depth=depth)
@@ -14,6 +17,7 @@ class ThingGraph:
         self.edges = edges
 
     def plot(self, depth: int = 1, filename: str = "graph.html") -> None:
+        """Plot the graph of Things."""
         plot_graph(self, depth=depth).show(filename)
 
 
@@ -92,7 +96,7 @@ def get_back_edges(
 def get_forward_edges(
     data_layer: DataLayer, fileid: FileId, depth: Optional[int] = 1
 ) -> List[str]:
-    """Get Thing Dependents ... somehow?
+    """Get Thing Dependents.
 
     This uses an assumption, yet to be determined, which will
     allow for implicitly determining which, amongst a set of
@@ -150,7 +154,7 @@ def get_edges(
 def append_graph(
     data_layer: DataLayer, fileid: FileId, nodes: Nodes, edges: Edges
 ) -> None:
-    # Update a file with a graph artifact.
+    """Update a file with a graph artifact."""
     nodes_edges = {"nodes": nodes, "edges": edges}
     nodes_df = pd.DataFrame(data={"nodes": nodes_edges["nodes"]})
     edges_df = pd.DataFrame(data={"edges": nodes_edges["edges"]})
@@ -222,6 +226,7 @@ def build_graph(node: ThingNode, depth: int = 1) -> Tuple[Nodes, Edges]:
 def get_node_description(
     data_layer: DataLayer, node: FileId, metadata_tags: Optional[List[str]] = None
 ) -> Mapping[str, Union[str, int, float]]:
+    """Get description of node."""
     _metadata = data_layer.get_metadata(node)
     if metadata_tags is None:
         metadata_tags = list(_metadata.keys())

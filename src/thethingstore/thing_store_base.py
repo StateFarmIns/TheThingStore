@@ -1,4 +1,4 @@
-"""Base Thing Store Object
+"""Base Thing Store Object.
 
 Regardless of implementation the basic thoughts behind the metadata
 dataset include:
@@ -7,6 +7,7 @@ dataset include:
 * The capability to *load* from the dataset by file identifier or schema.
 """
 
+import urllib
 import logging
 import numpy as np
 import os
@@ -14,8 +15,9 @@ import pandas as pd
 import pyarrow.dataset as ds
 import uuid
 
+from thethingstore import thing_pointer as tp
 from thethingstore.api import load as tsl, error as tse, data_hash as tsh
-from thethingstore.types import Dataset, FileId, Parameter, Metadata, Metric
+from thethingstore._types import Dataset, FileId, Parameter, Metadata, Metric, Address
 from thethingstore.thing_store_elements import Metadata as MetadataElements
 from thethingstore.thing_store_log import log as tslog
 
@@ -26,6 +28,13 @@ from typing import Any, Mapping, List, Optional, Type, Union, Callable
 
 
 logger = logging.getLogger(__name__)
+_implemented_ts = {}
+
+
+def register(cls: Any) -> Any:
+    """Register ThingStore implementations."""
+    _implemented_ts[cls.__name__] = cls  # type: ignore
+    return cls
 
 
 # TODO: What base would be appropriate? ABC?
@@ -54,8 +63,7 @@ class ThingStore:
         self._metadata_fs = metadata_filesystem
 
     def _load(
-        self,
-        file_identifier: FileId,
+        self, file_identifier: FileId, version: Optional[str] = None
     ) -> Union[Dataset, None]:
         """Return dataset paths identified by FILE_IDs.
 
@@ -66,6 +74,8 @@ class ThingStore:
         ----------
         file_identifier: FileId
             This is a file identifier understood by the Thing Store.
+        version: Optional[str]
+            This is an optional file version. If this is not provided, get the latest version.
         **kwargs
             These are forwarded into _load from load.
 
@@ -127,23 +137,23 @@ class ThingStore:
 
     def _log(
         self,
-        dataset: Optional[Dataset] = None,
-        parameters: Optional[Mapping[str, Parameter]] = None,
-        metadata: Optional[Mapping[str, Optional[Metadata]]] = None,  # type: ignore
-        metrics: Optional[Mapping[str, Metric]] = None,  # type: ignore
-        artifacts_folder: Optional[str] = None,
-        embedding: Optional[Dataset] = None,
+        dataset: Optional[Union[Dataset, FileId, Address]] = None,
+        parameters: Optional[Union[Mapping[str, Parameter], FileId, Address]] = None,
+        metadata: Optional[Union[Mapping[str, Optional[Metadata]], FileId]] = None,
+        metrics: Optional[Union[Mapping[str, Metric], FileId, Address]] = None,
+        artifacts_folder: Optional[Union[str, FileId, Address]] = None,
+        embedding: Optional[Union[Dataset, FileId]] = None,
     ) -> FileId:
         raise NotImplementedError("Overload me!")
 
     def log(
         self,
-        dataset: Optional[Dataset] = None,
-        parameters: Optional[Mapping[str, Parameter]] = None,
-        metadata: Optional[Mapping[str, Optional[Metadata]]] = None,  # type: ignore
-        metrics: Optional[Mapping[str, Metric]] = None,  # type: ignore
-        artifacts_folder: Optional[str] = None,
-        embedding: Optional[Dataset] = None,
+        dataset: Optional[Union[Dataset, FileId, Address]] = None,
+        parameters: Optional[Union[Mapping[str, Parameter], FileId, Address]] = None,
+        metadata: Optional[Mapping[str, Optional[Metadata]]] = None,
+        metrics: Optional[Union[Mapping[str, Metric], FileId, Address]] = None,
+        artifacts_folder: Optional[Union[str, FileId, Address]] = None,
+        embedding: Optional[Union[Dataset, FileId]] = None,
         force: bool = False,
         **kwargs: dict,
     ) -> FileId:
@@ -198,27 +208,8 @@ class ThingStore:
         """
         return self._post_process_browse(self._browse(**kwargs)).reset_index(drop=True)
 
-    def _list_artifacts(self, file_identifier: FileId) -> List[str]:
-        """Return artifact identifiers associated with a file.
-
-        This determines all artifacts associated with a file and
-        returns those as a list of strings.
-
-        Parameters
-        ----------
-        file_identifier: FileId
-            This is a file identifier understood by the Thing Store.
-
-        Returns
-        -------
-        artifact_identifiers: List[str]
-            The keys for the artifacts associated with this file.
-        """
-        raise NotImplementedError("Overload me.")
-
-    def list_artifacts(
-        self,
-        file_identifier: FileId,
+    def _list_artifacts(
+        self, file_identifier: FileId, version: Optional[str] = None
     ) -> List[str]:
         """Return artifact identifiers associated with a file.
 
@@ -229,6 +220,30 @@ class ThingStore:
         ----------
         file_identifier: FileId
             This is a file identifier understood by the Thing Store.
+        version: Optional[str]
+            This is an optional file version. If this is not provided, get the latest version.
+
+        Returns
+        -------
+        artifact_identifiers: List[str]
+            The keys for the artifacts associated with this file.
+        """
+        raise NotImplementedError("Overload me.")
+
+    def list_artifacts(
+        self, file_identifier: FileId, version: Optional[str] = None
+    ) -> List[str]:
+        """Return artifact identifiers associated with a file.
+
+        This determines all artifacts associated with a file and
+        returns those as a list of strings.
+
+        Parameters
+        ----------
+        file_identifier: FileId
+            This is a file identifier understood by the Thing Store.
+        version: Optional[str]
+            This is an optional file version. If this is not provided, get the latest version.
 
         Returns
         -------
@@ -236,9 +251,11 @@ class ThingStore:
             The keys for the artifacts associated with this file.
             None if no artifacts exist.
         """
-        return self._list_artifacts(file_identifier)
+        return self._list_artifacts(file_identifier, version)
 
-    def _check_file_id(self, file_identifier: FileId) -> bool:
+    def _check_file_id(
+        self, file_identifier: FileId, version: Optional[str] = None
+    ) -> bool:
         """Determine if a file id is in the thing store."""
         raise NotImplementedError
 
@@ -286,7 +303,11 @@ class ThingStore:
         raise NotImplementedError
 
     def _get_artifact(
-        self, file_identifier: FileId, artifact_identifier: str, target_path: str
+        self,
+        file_identifier: FileId,
+        artifact_identifier: str,
+        target_path: str,
+        version: Optional[str] = None,
     ) -> None:
         """Copy an artifact locally.
 
@@ -300,11 +321,17 @@ class ThingStore:
             This is the string key for the artifact (filepath in the folder).
         target_path: str
             This is where you wish to move the file.
+        version: Optional[str]
+            This is an optional file version. If this is not provided, get the latest version.
         """
         raise NotImplementedError("Overload me!")
 
     def get_artifact(
-        self, file_identifier: FileId, artifact_identifier: str, target_path: str
+        self,
+        file_identifier: FileId,
+        artifact_identifier: str,
+        target_path: str,
+        version: Optional[str] = None,
     ) -> None:
         """Copy an artifact locally.
 
@@ -318,21 +345,39 @@ class ThingStore:
             This is the string key for the artifact (filepath in the folder).
         target_path: str
             This is where you wish to move the file.
+        version: Optional[str]
+            This is an optional file version. If this is not provided, get the latest version.
         """
-        self._get_artifact(
-            file_identifier=file_identifier,
-            artifact_identifier=artifact_identifier,
-            target_path=target_path,
-        )
+        # If no version is passed in, get the latest
+        if not version:
+            _ = self._get_metadata(file_identifier)
+            version = str(_["FILE_VERSION"])
+        if self._is_pointer(file_identifier, "artifacts", version):
+            tp.dereference(
+                self,
+                file_identifier,
+                "artifacts",
+                version=version,
+                artifact_identifier=artifact_identifier,
+                artifacts_folder=target_path,
+            )
+        else:
+            self._get_artifact(
+                file_identifier=file_identifier,
+                artifact_identifier=artifact_identifier,
+                target_path=target_path,
+                version=version,
+            )
 
-    def get_artifacts(self, file_identifier: FileId, target_path: str) -> None:
+    def get_artifacts(
+        self, file_identifier: FileId, target_path: str, version: Optional[str] = None
+    ) -> None:
         """Copy artifacts locally.
 
         This copies all artifacts (for a specific FILE_ID) from the
         Thing Store to a local path.
 
-        This will make an 'artifacts' folder at the location you specify,
-        to whit <target_path>/artifacts/<downloaded contents>.
+        This will put the contents directly into the target folder: <target>/<contents>.
 
         If no artifacts exist, no changes will be made.
 
@@ -342,8 +387,12 @@ class ThingStore:
             This is a file identifier understood by the Thing Store.
         target_path: str
             This is where you wish to move the artifacts.
+        version: Optional[str]
+            This is an optional file version. If this is not provided, get the latest version.
         """
-        artifacts = self.list_artifacts(file_identifier=file_identifier)
+        artifacts = self.list_artifacts(
+            file_identifier=file_identifier, version=version
+        )
         if not artifacts:
             logger.warning("No artifacts exist. Nothing was done.")
             return None
@@ -351,17 +400,36 @@ class ThingStore:
         os.makedirs(target_path, exist_ok=True)
         if not os.path.isdir(target_path):
             raise RuntimeError(f"Cannot overwrite existing file @{target_path}")
-        for fl in self.list_artifacts(file_identifier=file_identifier):
+
+        # If no version is passed in, get the latest
+        if not version:
+            _ = self._get_metadata(file_identifier)
+            version = str(_["FILE_VERSION"])
+        # Check if the artifact is a pointer
+        if self._is_pointer(file_identifier, "artifacts", version):
+            tp.dereference(
+                self,
+                file_identifier,
+                "artifacts",
+                version=version,
+                artifacts_folder=target_path,
+            )
+        else:
             self.get_artifact(
                 file_identifier=file_identifier,
-                artifact_identifier=fl,
+                artifact_identifier="",
                 target_path=target_path,
+                version=version,
             )
 
-    def _get_parameters(self, file_identifier: FileId) -> Mapping[str, Parameter]:
+    def _get_parameters(
+        self, file_identifier: FileId, version: Optional[str] = None
+    ) -> Mapping[str, Parameter]:
         raise NotImplementedError
 
-    def get_parameters(self, file_identifier: FileId) -> Mapping[str, Parameter]:
+    def get_parameters(
+        self, file_identifier: FileId, version: Optional[str] = None
+    ) -> Mapping[str, Parameter]:
         """Return parameters used to produce a FILE_ID.
 
         This drops any parameters which are NaN or Null.
@@ -370,6 +438,8 @@ class ThingStore:
         ----------
         file_identifier: FileId
             A file identifier understood by the Thing Store.
+        version: Optional[str]
+            This is an optional file version. If this is not provided, get the latest version.
 
         Returns
         -------
@@ -377,15 +447,32 @@ class ThingStore:
             The set of parameters used to produce the FILE_ID.
             None if no parameters were used.
         """
-        params = self._get_parameters(file_identifier=file_identifier)
-        params = {k: v for k, v in params.items() if v is not None}
+        params: Mapping[str, Parameter] = {}
+        # If no version is passed in, get the latest
+        if not version:
+            _ = self._get_metadata(file_identifier)
+            version = str(_["FILE_VERSION"])
+        if self._is_pointer(file_identifier, "parameters", version):
+            return tp.dereference(  # type: ignore
+                self, file_identifier, "parameters", version=version
+            )
+        else:
+            params = self._get_parameters(
+                file_identifier=file_identifier, version=version
+            )
+            params = {k: v for k, v in params.items() if v is not None}
         return params  # type: ignore  # Figure out why mypy is getting tetchy.
 
-    def _get_metadata(self, file_identifier: FileId) -> Mapping[str, Metadata]:  # type: ignore
+    def _get_metadata(
+        self, file_identifier: FileId, version: Optional[str] = None
+    ) -> Mapping[str, Metadata]:
         raise NotImplementedError("Overload me!")
 
     def get_metadata(
-        self, file_identifier: FileId, drop_none: bool = True
+        self,
+        file_identifier: FileId,
+        drop_none: bool = True,
+        version: Optional[str] = None,
     ) -> Mapping[str, Metadata]:  # type: ignore
         """Return latest metadata associated with a FILE_ID.
 
@@ -400,6 +487,8 @@ class ThingStore:
             across implementations this defaults to True.
             This means that columns in the metadata which are
             missing elements are not represented as None.
+        version: Optional[str]
+            This is an optional file version. If this is not provided, get the latest version.
 
         Returns
         -------
@@ -407,7 +496,7 @@ class ThingStore:
             The most up to date metadata for the FILE_ID.
             None if no metadata exists.
         """
-        _metadata = self._get_metadata(file_identifier=file_identifier)
+        _metadata = self._get_metadata(file_identifier=file_identifier, version=version)
         if drop_none:
 
             def _match_none(x: Any) -> bool:
@@ -422,15 +511,19 @@ class ThingStore:
         # MyPy doesn't like dict unpacking. Oh well.
         try:
             return MetadataElements(**_metadata).dict()  # type: ignore
-        except BaseException:
+        except BaseException as e:  # noqa: B036 - This is a catch all.
             raise Exception(
                 f"Metadata retrieval failure: {_metadata}, drop_none: {drop_none}"
-            )
+            ) from e
 
-    def _get_metrics(self, file_identifier: FileId) -> Mapping[str, Metric]:  # type: ignore
+    def _get_metrics(
+        self, file_identifier: FileId, version: Optional[str] = None
+    ) -> Mapping[str, Metric]:  # type: ignore
         raise NotImplementedError("Overload me!")
 
-    def get_metrics(self, file_identifier: FileId) -> Mapping[str, Metric]:  # type: ignore
+    def get_metrics(
+        self, file_identifier: FileId, version: Optional[str] = None
+    ) -> Mapping[str, Metric]:  # type: ignore
         """Return metrics associated with a FILE_ID.
 
         This drops any metrics which return NaN or Null.
@@ -439,6 +532,8 @@ class ThingStore:
         ----------
         file_identifier: FileId
             A file identifier understood by the Thing Store.
+        version: Optional[str]
+            This is an optional file version. If this is not provided, get the latest version.
 
         Returns
         -------
@@ -446,14 +541,24 @@ class ThingStore:
             The set of metrics associated with the FILE_ID.
             None if no metrics exist.
         """
-        metrics = self._get_metrics(file_identifier=file_identifier)
+        metrics: Mapping[str, Metric] = {}
+        # If no version is passed in, get the latest
+        if not version:
+            _ = self._get_metadata(file_identifier)
+            version = str(_["FILE_VERSION"])
+        if self._is_pointer(file_identifier, "metrics", version):
+            return tp.dereference(self, file_identifier, "metrics", version=version)  # type: ignore
+        else:
+            metrics = self._get_metrics(
+                file_identifier=file_identifier, version=version
+            )
         metrics = {
-            k: v for k, v in metrics.items() if (v is not None and not np.isnan(v))
+            k: v for k, v in metrics.items() if (v is not None and not np.isnan(v))  # type: ignore
         }
         return metrics
 
     def get_dataset(
-        self, file_identifier: FileId, **kwargs: Any
+        self, file_identifier: FileId, version: Optional[str] = None, **kwargs: Any
     ) -> Union[ds.Dataset, Type[None]]:
         """Return file identifier as a PyArrow dataset.
 
@@ -467,6 +572,8 @@ class ThingStore:
         ----------
         file_identifier: FileId
             A file identifier understood by the Thing Store.
+        version: Optional[str]
+            This is an optional file version. If this is not provided, get the latest version.
         **kwargs
             Keyword arguments forwarded into the constructor
             for a PyArrow Dataset.
@@ -477,24 +584,37 @@ class ThingStore:
             The dataset associated with the FILE_ID if one exists.
             None if no dataset is associated.
         """
-        file_handles, filetype = tsl._get_info(file_identifier)
-        if not filetype == "fileid":  # This is not a file id.
-            raise KeyError("Can only request a dataset by FILE_ID")
-        # FILE_ID live in the Thing Store. Go look for it.
-        file_handles = [self._load(file_identifier=_) for _ in file_handles]
-        file_handles = [_ for _ in file_handles if (_ is not None and _)]
-        # Validate this behavior works.
-        if not file_handles:
-            return None
-        return ds.dataset(file_handles, **kwargs)
+        # If no version is passed in, get the latest
+        if not version:
+            _ = self._get_metadata(file_identifier)
+            version = str(_["FILE_VERSION"])
+        if self._is_pointer(file_identifier, "data", version=version):
+            return tp.dereference(self, file_identifier, "data", version=version)
+        else:
+            file_handles, filetype = tsl._get_info(file_identifier)
+            if not filetype == "fileid":  # This is not a file id.
+                raise KeyError("Can only request a dataset by FILE_ID")
+            # FILE_ID live in the Thing Store. Go look for it.
+            file_handles = [
+                self._load(file_identifier=_, version=version) for _ in file_handles
+            ]
+            file_handles = [_ for _ in file_handles if (_ is not None and _)]
+            # Validate this behavior works.
+            if not file_handles:
+                return None
+            return ds.dataset(file_handles, **kwargs)
 
-    def get_function(self, file_identifier: FileId) -> Optional[Callable]:
+    def get_function(
+        self, file_identifier: FileId, version: Optional[str] = None
+    ) -> Optional[Callable]:
         """Return function associated with a FILE_ID.
 
         Parameters
         ----------
         file_identifier: FileId
             A file identifier understood by the Thing Store.
+        version: Optional[str]
+            This is an optional file version. If this is not provided, get the latest version.
 
         Returns
         -------
@@ -502,15 +622,25 @@ class ThingStore:
             The function associated with the FILE_ID.
             None if no function exists.
         """
-        return self._get_function(file_identifier=file_identifier)
+        # If no version is passed in, get the latest
+        if not version:
+            _ = self._get_metadata(file_identifier)
+            version = str(_["FILE_VERSION"])
+        if self._is_pointer(file_identifier, "function", version=version):
+            return tp.dereference(self, file_identifier, "function", version=version)  # type: ignore
+        return self._get_function(file_identifier=file_identifier, version=version)
 
-    def _get_function(self, file_identifier: FileId) -> Optional[Callable]:
+    def _get_function(
+        self, file_identifier: FileId, version: Optional[str] = None
+    ) -> Optional[Callable]:
         """Return function associated with a FILE_ID.
 
         Parameters
         ----------
         file_identifier: FileId
             A file identifier understood by the Thing Store.
+        version: Optional[str]
+            This is an optional file version. If this is not provided, get the latest version.
 
         Returns
         -------
@@ -520,13 +650,17 @@ class ThingStore:
         """
         raise NotImplementedError("Overload Me!")
 
-    def get_embedding(self, file_identifier: FileId, **kwargs: Any) -> Dataset:
+    def get_embedding(
+        self, file_identifier: FileId, version: Optional[str] = None, **kwargs: Any
+    ) -> Dataset:
         """Return embedding associated with a FILE_ID.
 
         Parameters
         ----------
         file_identifier: FileId
             A file identifier understood by the Thing Store.
+        version: Optional[str]
+            This is an optional file version. If this is not provided, get the latest version.
         **kwargs: Optional[Any]:
             Additional keyword arguments forwarded into load.
 
@@ -536,15 +670,25 @@ class ThingStore:
             The embedding associated with the FILE_ID.
             None if no function exists.
         """
-        return self._get_embedding(file_identifier=file_identifier, **kwargs)
+        # If no version is passed in, get the latest
+        if not version:
+            _ = self._get_metadata(file_identifier)
+            version = str(_["FILE_VERSION"])
+        return self._get_embedding(
+            file_identifier=file_identifier, version=version, **kwargs
+        )
 
-    def _get_embedding(self, file_identifier: FileId) -> Dataset:
+    def _get_embedding(
+        self, file_identifier: FileId, version: Optional[str] = None
+    ) -> Dataset:
         """Return embedding associated with a FILE_ID.
 
         Parameters
         ----------
         file_identifier: FileId
             A file identifier understood by the Thing Store.
+        version: Optional[str]
+            This is an optional file version. If this is not provided, get the latest version.
 
         Returns
         -------
@@ -554,8 +698,18 @@ class ThingStore:
         """
         raise NotImplementedError("Overload Me!")
 
+    def _get_pointer(
+        self, file_identifier: FileId, component: str, version: str
+    ) -> Address:
+        raise NotImplementedError("Overload Me!")
+
+    def _is_pointer(
+        self, file_identifier: FileId, component: str, version: str
+    ) -> bool:
+        raise NotImplementedError("Overload Me!")
+
     def get_metadata_hash(self, return_type: str = "hex") -> Union[str, bytes, int]:
-        """Returns a md5 digest of the latest metadata dataset
+        """Return md5 digest of the latest metadata dataset.
 
         Parameters
         ----------
@@ -567,7 +721,7 @@ class ThingStore:
             - int | integer
 
         Returns
-        ----------
+        -------
         hash: Union[str, bytes, int]
             Metadata dataset md5 hash
         """
@@ -683,7 +837,7 @@ class ThingStore:
                         parameters=_params,
                         metadata=_metadata,
                         metrics=_metrics,
-                        artifacts_folder=os.path.join(t, "artifacts"),
+                        artifacts_folder=t,
                     )
             else:
                 self.log(
@@ -692,7 +846,7 @@ class ThingStore:
                     metadata=_metadata,
                     metrics=_metrics,
                 )
-        except BaseException as e:
+        except BaseException as e:  # noqa: B036 - This is a catch all
             raise tse.ThingStoreGeneralError(
                 f"""Unable to copy to remote.",
                 Type dataset: {type(_dataset)}
@@ -740,3 +894,89 @@ class ThingStore:
 
     def _update(self, file_id: FileId, **kwargs: Any) -> None:
         raise NotImplementedError
+
+    def address_to_ts(
+        self, addr: Address
+    ) -> "ThingStore":  # noqa: F821 - ThingStore isn't defined.
+        """Convert an address to a ThingStore object.
+
+        The address is parsed to get the implementation class.
+        The address is passed into that class's constructor to spin up a TS object.
+        That TS object is returned.
+
+        Parameters
+        ----------
+        addr: Addrress
+            This is an address containing the necessary information to dynamically spin up a TS instance.
+
+        Returns
+        -------
+        new_ts: 'ThingStore'
+            This is a dynamically built TS instance.
+        """
+        try:
+            _parsed = urllib.parse.urlparse(addr)
+            _implementation_name = _parsed.path[1:]
+            if _implementation_name not in _implemented_ts.keys():
+                raise NotImplementedError(
+                    f"The given TS type is not implemented: {_implementation_name}"
+                )
+            _ts = _implemented_ts[_implementation_name]
+            _new_ts = _ts(address=addr)
+        except BaseException:  # noqa: B036 - This is a catch all.
+            raise BaseException(
+                f"The ThingStore failed to spin up a TS instance for implementation ({_ts})"
+            )
+        return _new_ts
+
+    def _address_of(
+        self, file_identifier: FileId, version: Optional[str] = None
+    ) -> str:
+        raise NotImplementedError("Overload Me!")
+
+    def address_of(self, file_identifier: FileId, version: Optional[str] = None) -> str:
+        """Build an address from file ID and version information.
+
+        This function constructs a FileSystemThingStore address based on the following information:
+            * The provided file ID.
+            * The current TS object class name.
+            * The current TS filesystem class name.
+            * The current TS managed_location.
+            * The provided version number.
+                * If a version number is not provided, this is left blank.
+
+        Parameters
+        ----------
+        file_identifier: FileId
+            A file ID to convert into an address.
+        version: Optional[str]
+            An optional file version to add to the address.
+
+        Returns
+        -------
+        addr: str
+            The generated address.
+        """
+        return self._address_of(file_identifier, version)
+
+    def get_size(self, file_identifier: FileId, version: Optional[str] = None) -> int:
+        """Return the size of the file ID directory.
+
+        If a version is given, only return the size of that version.
+
+        Parameters
+        ----------
+        file_identifier: FileId
+            The file ID for which to get the size.
+        version:
+            An optional file version to the file ID.
+
+        Returns
+        -------
+        total_size: int
+            The total size, in bytes, of the file ID.
+        """
+        return self._get_size(file_identifier, version=version)
+
+    def _get_size(self, file_identifier: FileId, version: Optional[str] = None) -> int:
+        raise NotImplementedError("Overload me!")

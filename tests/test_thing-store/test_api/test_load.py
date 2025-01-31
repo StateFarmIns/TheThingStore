@@ -1,3 +1,5 @@
+"""Test loading routines."""
+
 import geopandas as gp
 import pandas as pd
 import pyarrow as pa
@@ -41,16 +43,15 @@ test_cases = [
 
 @pytest.mark.parametrize(("dataset_or_filepaths", "expected_output"), test_cases)
 def test__get_info_success(dataset_or_filepaths, expected_output):
-    """Test _get_info successful case
+    """Test _get_info successful case.
 
-    pass _get_info() a dataset/filepath and verify correct info is returned
-
+    pass _get_info() a dataset / filepath and verify correct info is returned
     """
     assert load._get_info(dataset_or_filepaths) == expected_output
 
 
 def test__get_info_fail():
-    """Test _get_info error case
+    r"""Test _get_info error case.
 
     1. pass _get_info() both a filepath and dataset simultaneously, and verify
       \"Loading multiple types\" error is raised
@@ -60,7 +61,6 @@ def test__get_info_fail():
       dataset with suffix\" error is raised
     4. pass _get_info() a dataset of an invalid type, and verify
       \"Cannot understand dataset type\" error is raised
-
     """
     with pytest.raises(tsle.ThingStoreLoadingError, match="Loading multiple types"):
         load._get_info(["sillything.parquet", pd.DataFrame()])
@@ -92,10 +92,9 @@ test_cases = [
 
 @pytest.mark.parametrize(("s3path", "filesystem", "expected_output"), test_cases)
 def test__s3_str_handler(s3path, filesystem, expected_output):
-    """test s3 str handler utility
+    """Test s3 str handler utility.
 
     pass _s3_str_handler() an s3path and S3FileSystem, and verify output is as expected
-
     """
     assert load._s3_str_handler(s3path, filesystem) == expected_output
 
@@ -117,10 +116,9 @@ test_cases = [
 
 @pytest.mark.parametrize(("dataset_or_filepaths"), test_cases)
 def test__load_dataset_success(dataset_or_filepaths):
-    """test _load_dataset() utility for successful cases
+    """Test _load_dataset() utility for successful cases.
 
-    pass _load_dataset() a dataset/filepath, and verify output is as expected
-
+    pass _load_dataset() a dataset / filepath, and verify output is as expected
     """
     loaded = load._load_dataset(dataset_or_filepaths=dataset_or_filepaths)
     assert [isinstance(_, ds.Dataset) for _ in loaded]
@@ -129,10 +127,9 @@ def test__load_dataset_success(dataset_or_filepaths):
 
 
 def test__load_dataset_fail():
-    """test _load dataset() in the case of an error
+    """Test _load dataset() in the case of an error.
 
     pass _load_dataset() an item that is neither a pyarrow dataset nor a str, and verify correct error is raised
-
     """
     with pytest.raises(tsle.ThingStoreLoadingError, match="into dataset"):
         load._load_dataset(1)
@@ -147,10 +144,9 @@ test_cases = [
 
 @pytest.mark.parametrize(("dataset_or_filepaths"), test_cases)
 def test__load_shapefile_success(dataset_or_filepaths):
-    """test _load_shapefile() utility for successful cases
+    """Test _load_shapefile() utility for successful cases.
 
     pass _load_shapefile() a dataset/filepath, and verify output is as expected
-
     """
     loaded = load._load_shape(dataset_or_filepaths, {})
     assert [isinstance(_, gp.GeoDataFrame) for _ in loaded]
@@ -159,10 +155,9 @@ def test__load_shapefile_success(dataset_or_filepaths):
 
 
 def test__load_shapefile_fail():
-    """test _load_shapefile() in the case of an error
+    """Test _load_shapefile() in the case of an error.
 
     pass _load_dataset() an item that is neither a geopandas dataframe nor a str, and verify correct error is raised
-
     """
     with pytest.raises(tsle.ThingStoreLoadingError, match="into GeoPandas"):
         load._load_shape(1)
@@ -180,10 +175,9 @@ test_cases = [
 
 @pytest.mark.parametrize(("dataset_or_filepaths"), test_cases)
 def test__load_table_success(dataset_or_filepaths):
-    """test _load_table() utility for successful cases
+    """Test _load_table() utility for successful cases.
 
     pass _load_table() a dataset/filepath, and verify output is as expected
-
     """
     loaded = load._load_table(dataset_or_filepaths, {})
     assert [isinstance(_, pa.Table) for _ in loaded]
@@ -192,10 +186,9 @@ def test__load_table_success(dataset_or_filepaths):
 
 
 def test__load_table_fail():
-    """test _load_table() in the case of an error
+    """Test _load_table() in the case of an error.
 
     pass _load_table() an item that is neither a pyarrow dataset nor a pyarrow table, and verify correct error is raised
-
     """
     with pytest.raises(tsle.ThingStoreLoadingError, match="into Table"):
         load._load_table(1)
@@ -213,10 +206,9 @@ test_cases = [
 def test__load_pandas_success(
     dataset_or_filepaths,
 ):
-    """test _load_pandas() utility for successful cases
+    """Test _load_pandas() utility for successful cases.
 
     pass _load_pandas() a dataset/filepath, and verify output is as expected
-
     """
     loaded = load._load_pandas(dataset_or_filepaths, {})
     assert [isinstance(_, pd.DataFrame) for _ in loaded]
@@ -225,11 +217,10 @@ def test__load_pandas_success(
 
 
 def test__load_pandas_fail():
-    """test _load_pandas() in the case of an error
+    """Test _load_pandas() in the case of an error.
 
     pass _load_pandas() an item that is neither a pyarrow table
     nor a pandas dataframe, and verify correct error is raised
-
     """
     with pytest.raises(tsle.ThingStoreLoadingError, match="into Pandas"):
         load._load_pandas(1)
@@ -313,11 +304,10 @@ def test__map_load_success(
     output_format,
     expected_output,
 ):
-    """test _map_load() for successful case
+    """Test _map_load() for successful case.
 
     pass _map_load() a dataset, dataset_type, output_format for _load_dataset
         verify output is as expected
-
     """
     try:
         actual_output, _ = load._map_load(
@@ -339,7 +329,7 @@ def test__map_load_success(
         else:
             raise Exception("Not accounted for in test suite.")
         pd.testing.assert_frame_equal(test_frame, _pds)
-    except BaseException as e:
+    except BaseException as e:  # noqa: B036 - Catchall
         raise Exception(
             f"""
         Load Error:
@@ -349,16 +339,3 @@ def test__map_load_success(
         output_format: {output_format}
         """
         ) from e
-
-
-# def test__map_load_fail(
-#     dataset_or_filepaths,
-#     dataset_type,
-#     output_format,
-#     metadata_bucket,
-#     metadata_prefix,
-#     load_dataset_kwargs,
-# ):
-#     """test _map_load() in case of error"""
-#     raise NotImplementedError
-# TODO: Let me think on this.

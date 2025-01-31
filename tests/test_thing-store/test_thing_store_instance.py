@@ -1,4 +1,5 @@
 """Test concrete implementations of Thing Store."""
+
 import itertools
 import os
 import pandas as pd
@@ -8,6 +9,7 @@ import uuid
 import pyarrow.dataset as ds
 from datetime import datetime
 from pyarrow.fs import LocalFileSystem, S3FileSystem
+from thethingstore.api.data_hash import dataset_digest
 from thethingstore.thing_store_base import ThingStore
 from thethingstore.thing_store_elements import Metadata
 from thethingstore.thing_store_pa_fs import FileSystemThingStore
@@ -58,26 +60,27 @@ def _treat_params(params, folder):
     params=[_ for _ in thing_store_sets if _[2] != "S3Filesystem"],
     ids=lambda x: f"Local:{x[2]}",
 )
-@pytest.mark.usefixtures("test_temporary_folder")
 def local_thing_store(request, test_temporary_folder):
+    """Create local thing store."""
     # This creates a local thing_store.
     thing_store, params, test_name = request.param
     new_params = _treat_params(params, test_temporary_folder)
-    yield thing_store(**new_params)
+    return thing_store(**new_params)
 
 
 @pytest.fixture(params=thing_store_sets, ids=lambda x: f"Remote:{x[2]}")
-@pytest.mark.usefixtures("test_temporary_folder")
 def remote_thing_store(request, test_temporary_folder):
+    """Create remote thing store."""
     # This creates a local thing_store.
     thing_store, params, test_name = request.param
     new_params = _treat_params(params, test_temporary_folder)
-    yield thing_store(**new_params)
+    return thing_store(**new_params)
 
 
 @pytest.mark.usefixtures("integration_test", "remote_thing_store", "local_thing_store")
 def test_thing_store(integration_test, remote_thing_store, local_thing_store):
-    """Run the integration test at tests/conftest.py"""
+    """Run the integration test."""
+    # See conftest.py
     integration_test(remote_thing_store, local_thing_store)
 
 
@@ -109,14 +112,14 @@ for _ in range(1, len(components)):
     ids=lambda x: "-".join(x),
 )
 def component_combination(request):
-    "This is a fixture which creates combinations of components."
+    """Create combinations of components."""
     return request.param
 
 
 def _loader(
     thing_store: ThingStore, file_id: str, component: str, base_path: str
 ) -> None:
-    """Intelligently attempt to load and test a 'thing'"""
+    """Intelligently attempt to load and test a 'thing'."""
     if component == "dataset":
         dataset = thing_store.get_dataset(file_identifier=file_id)
         assert isinstance(dataset, ds.Dataset)
@@ -135,7 +138,7 @@ def _loader(
             file_identifier=file_id, target_path=base_path
         )
         assert artifacts is None
-        assert set(os.listdir(f"{base_path}/artifacts")) == {"numpy.npy", "list.txt"}
+        assert set(os.listdir(f"{base_path}")) == {"numpy.npy", "list.txt"}
         # Some day consider testing artifact loading here?
     elif component == "metadata":
         _metadata = thing_store.get_metadata(file_identifier=file_id)
@@ -155,7 +158,7 @@ def _loader(
 def _failer(
     thing_store: ThingStore, file_id: str, component: str, base_path: str
 ) -> None:
-    """Intelligently attempt to load and test a failed 'thing'"""
+    """Intelligently attempt to load and test a failed 'thing'."""
     if component == "dataset":
         dataset = thing_store.get_dataset(file_identifier=file_id)
         assert dataset is None
@@ -205,7 +208,7 @@ def test_component_logging(
     testing_artifacts_folder,
     test_temporary_folder,
 ):
-    """Save component combinations to Thing Store"""
+    """Save component combinations to Thing Store."""
     # Get the parameters
     params = {k: v for k, v in components.items() if k in component_combination}
     if "artifacts_folder" in params:
@@ -213,7 +216,7 @@ def test_component_logging(
     # Try to log this job and get a file id.
     try:
         file_id = remote_thing_store.log(**params)
-    except BaseException as e:
+    except BaseException as e:  # noqa: B036 - This is a catchall
         raise Exception(f"Broke attempting to log {component_combination}") from e
     test_path = os.path.join(test_temporary_folder, "test_component_logging", file_id)
     os.makedirs(test_path)
@@ -228,7 +231,7 @@ def test_component_logging(
                     component=component,
                     base_path=test_path,
                 )
-            except BaseException as e:
+            except BaseException as e:  # noqa: B036 - This is a catchall
                 raise Exception(component, components[component]) from e
         else:  # I should *not* be able to get it.
             _failer(
@@ -243,3 +246,20 @@ def test_component_logging(
     )
     function = remote_thing_store.get_function(file_id)
     assert isinstance(function, Callable)
+
+
+@pytest.mark.usefixtures(
+    "remote_thing_store",
+    "test_temporary_folder",
+)
+def test_dataset_filepath_logging(remote_thing_store, test_temporary_folder):
+    """Test logging a dataset as a filepath."""
+    df = pd.DataFrame({"col1": [1, 2, 3], "col2": [2, 4, 6], "col3": [4, 8, 12]})
+    dataset_flpath = f"{test_temporary_folder}/random.parquet"
+    df.to_parquet(dataset_flpath)
+    file_id = remote_thing_store.log(
+        metadata={"FILE_ID": "DATASET_FILEPATH_TEST"}, dataset=dataset_flpath
+    )
+    ts_df = remote_thing_store.get_dataset(file_id)
+
+    assert dataset_digest(df) == dataset_digest(ts_df.to_table().to_pandas())

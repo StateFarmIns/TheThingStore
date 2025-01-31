@@ -3,19 +3,29 @@
 The logging routine is complex enough that it warrants being
 represented by itself.
 """
+
 import importlib.util
 import inspect
 import logging
 import tempfile
 import thethingstore.api.load as tsl
 import thethingstore.api.save as tss
+import thethingstore.api.error as tse
 import os
 import pyarrow as pa
 import pyarrow.dataset as ds
 import shutil
 from copy import deepcopy
 from datetime import datetime
-from thethingstore.types import Dataset, FileId, Parameter, Metadata, Metric, Thing
+from thethingstore._types import (
+    Dataset,
+    FileId,
+    Parameter,
+    Metadata,
+    Metric,
+    Address,
+    Thing,
+)
 from tempfile import TemporaryDirectory
 from typing import Mapping, Optional, Union, Any, TYPE_CHECKING
 
@@ -25,39 +35,38 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def is_fileid(dataset: Union[str, Dataset], thingstore: "ThingStore") -> bool:
+    """Check if a dataset reference is a filepath or a fileid."""
+    if not isinstance(dataset, str):
+        return False
+    if dataset.lower().startswith("fileid"):
+        return True
+    else:
+        return thingstore._check_file_id(dataset)
+
+
 def log(
     thing_store: "ThingStore",  # noqa: F821 - ThingStore isn't defined.
-    dataset: Optional[Dataset] = None,
-    parameters: Optional[Mapping[str, Parameter]] = None,
-    metadata: Optional[Mapping[str, Optional[Metadata]]] = None,  # type: ignore
-    metrics: Optional[Mapping[str, Metric]] = None,  # type: ignore
-    artifacts_folder: Optional[str] = None,
+    dataset: Optional[Union[Dataset, FileId, Address]] = None,
+    parameters: Optional[Union[Mapping[str, Parameter], FileId, Address]] = None,
+    metadata: Optional[Mapping[str, Optional[Metadata]]] = None,
+    metrics: Optional[Union[Mapping[str, Metric], FileId, Address]] = None,
+    artifacts_folder: Optional[Union[str, FileId, Address]] = None,
     embedding: Optional[Dataset] = None,
     force: bool = False,
     **kwargs: dict,
 ) -> str:
-    _indicator_fields = {
-        "TS_HAS_DATASET": dataset is not None,
-        "TS_HAS_PARAMETERS": parameters is not None,
-        "TS_HAS_METADATA": metadata is not None,
-        "TS_HAS_METRICS": metrics is not None,
-        "TS_HAS_ARTIFACTS": artifacts_folder is not None,
-        "TS_HAS_EMBEDDING": embedding is not None,
-    }
-
+    """Log a Thing."""
     with TemporaryDirectory() as t:
-        # Is this a FILE_ID?
-        # Tim's thoughts: This pattern can have the 'get by fileid'
-        #   abstracted to enable thingpointer.
-        # Then the pattern is Thing::by_component() yielding a loop of _handle_{component}(x) over the
-        #   list of components.
-        # In _handle_{component} the pattern is 'get_by_fileid if fileid' and
-        #   then component specific logic.
-        _dataset = _handle_dataset(
-            dataset=dataset,
-            thing_store=thing_store,
-            temp_folder=t,
-        )
+        # If a file ID was passed for the dataset, don't do any handling
+        if not is_fileid(dataset, thing_store):
+            _dataset = _handle_dataset(
+                dataset=dataset,
+                thing_store=thing_store,
+                temp_folder=t,
+            )
+        else:
+            _dataset = dataset
         # Examine the metadata and handle edge cases
         _metadata = _handle_metadata(
             metadata=metadata,
@@ -69,6 +78,30 @@ def log(
         if _metadata is None:
             _metadata = {}
         assert isinstance(_metadata, dict)  # nosec
+        # Is this an update to a previous version?
+        try:
+            _previous_metadata = thing_store.get_metadata(_metadata["FILE_ID"])
+        except KeyError:
+            _previous_metadata = None
+        except tse.ThingStoreFileNotFoundError:
+            _previous_metadata = None
+        if _previous_metadata and thing_store._check_file_id(_metadata["FILE_ID"]):
+            update_version = True
+        else:
+            update_version = False
+        # Set additional metadata tags
+        _indicator_fields = {
+            "TS_HAS_DATASET": _dataset is not None
+            or (update_version and _previous_metadata["TS_HAS_DATASET"]),  # type: ignore
+            "TS_HAS_PARAMETERS": parameters is not None
+            or (update_version and _previous_metadata["TS_HAS_PARAMETERS"]),  # type: ignore
+            "TS_HAS_METADATA": _metadata is not None,
+            "TS_HAS_METRICS": metrics is not None
+            or (update_version and _previous_metadata["TS_HAS_METRICS"]),  # type: ignore
+            "TS_HAS_ARTIFACTS": artifacts_folder is not None
+            or (update_version and _previous_metadata["TS_HAS_ARTIFACTS"]),  # type: ignore
+            "TS_HAS_EMBEDDING": embedding is not None,
+        }
         _metadata.update(_indicator_fields)
         # This is UNOFFICIAL support for this.
         # Check for artifacts here.
@@ -102,13 +135,14 @@ def _handle_dataset(  # noqa: C901 - flake is a 'clean code' Andy
 
     This is a helper function that just consolidates the logic
     behind handling the different types of datasets that the
-    Thing Store may represent."""
+    Thing Store may represent.
+    """
     if dataset is not None:  # There *is* a dataset.
         _, loadtype = tsl._get_info(dataset_or_filepaths=dataset)
         # TODO: For Ibis implementation here this will replace PDDataFrame.
         if loadtype == "fileid":
             # Does this FILE_ID exist in the thing store?
-            if thing_store._check_file_id(file_identifier=dataset):
+            if thing_store._check_file_id(file_identifier=dataset):  # type: ignore
                 # Good, let's not copy it!
                 _dataset = dataset
         # TODO: validate the change from if to elif does not break anything.
@@ -188,7 +222,7 @@ def _handle_metadata(
             # Get the most current metadata.
             _remote_metadata = thing_store.get_metadata(fl_id)
             # Note this gets the file version which defaults to zero.
-            managed_fl_ver: int = int(float(_remote_metadata.get("FILE_VERSION", 0)))
+            managed_fl_ver: int = int(float(_remote_metadata.get("FILE_VERSION", 0)))  # type: ignore
             if fl_ver <= 0:  # If the *requested* version is 0 or lower... explode.
                 raise NotImplementedError(
                     "File versions of 0 and below are not officially supported."
@@ -213,10 +247,10 @@ def _handle_metadata(
 
 def _get(value: Parameter) -> Any:
     # This helper function is reused below in the import phase.
-    if value.default == inspect._empty:
+    if value.default == inspect._empty:  # type: ignore
         return None
     else:
-        return value.default
+        return value.default  # type: ignore
 
 
 def log_function(  # noqa: C901
@@ -297,7 +331,7 @@ def log_function(  # noqa: C901
         assert spec is not None  # nosec
         _module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_module)  # type: ignore
-    except BaseException as e:
+    except BaseException as e:  # noqa: B036 - This is a catch all.
         raise ImportError(
             f"""Functional Thing Exception
         I could not import the workflow you wish to log.
@@ -332,7 +366,7 @@ def log_function(  # noqa: C901
     }
     # The parameters we extract here.
     _params = inspect.signature(_module.workflow).parameters
-    component_dict["parameters"] = {k: _get(v) for k, v in _params.items()}
+    component_dict["parameters"] = {k: _get(v) for k, v in _params.items()}  # type: ignore
     # Here we *could* allow artifacts and just add the function to them.
     # We are not going to, because Tim is lazy and doesn't want to implement that!
     # 4. Does this return a Thing?
@@ -366,5 +400,10 @@ def log_function(  # noqa: C901
                 return thing_store.log(**component_dict)
             else:
                 return f"Dry Run Success! fileid: {flid} published {_} to a temporary data layer."
-        except BaseException:
-            raise Exception("what", data_layer.get_metadata(flid), flid, component_dict)
+        except BaseException as e:  # noqa: B036 - This is a catch all.
+            raise Exception(
+                "Error in final log",
+                data_layer.get_metadata(flid),
+                flid,
+                component_dict,
+            ) from e

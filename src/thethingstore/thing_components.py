@@ -1,4 +1,4 @@
-"""What is a Thing?
+"""Describes the Thing.
 
 A Thing can, quite simply and apologies for the tongue-in-cheek, be *anything*.
 
@@ -13,26 +13,27 @@ typing, but the general thoughts and specific components here
 are appropriate.)
 
 Thing Components
-~~~~~~~~~~~~~~~~
-FileId: str
+----------------
+* FileId: str
     This is a string, albeit one with expected formatting.
     Please see `file_id.py` for more information.
-Parameters:
+* Parameters:
     A potentially arbitrary key-value mapping structure.
-Metadata:
+* Metadata:
     A key-value mapping structure expected to have *atomic* elements.
-Metric:
+* Metric:
     A key-value mapping structure expected to have *measure* elements.
-Dataset:
+* Dataset:
     This represents a Table of information.
-Function:
+* Function:
     A python file with a workflow function.
-Embedding:
+* Embedding:
     A matrix of arbitrary dimensionality
-Artifacts:
+* Artifacts:
     Look... stuff!
 
 """
+
 from pydantic import BaseModel, Extra
 
 

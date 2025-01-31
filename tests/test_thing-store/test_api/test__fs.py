@@ -1,4 +1,5 @@
 """Test filesystem utilities."""
+
 import os
 import pytest
 from thethingstore.api._fs import get_fs, ls_dir
@@ -28,12 +29,14 @@ test_cases = [
 @pytest.mark.usefixtures("moto_server")
 @pytest.mark.parametrize(("flpath", "expected_path", "expected_fs"), test_cases)
 def test_get_fs(flpath: str, expected_path: str, expected_fs: FileSystem):
+    """Test get_fs."""
     actual_path, actual_fs = get_fs(flpath)
     assert isinstance(actual_fs, expected_fs)
     assert actual_path == expected_path
 
 
 def test_get_fs_error():
+    """Test get_fs error."""
     with pytest.raises(NotImplementedError):
         get_fs({"thing"})
 
@@ -42,6 +45,8 @@ def test_get_fs_error():
     "testing_artifacts_folder", "moto_server", "test_temporary_folder"
 )
 def test_ls_dir(testing_artifacts_folder, test_temporary_folder):
+    """Test ls_dir."""
+
     def run_test(filesystem, target_folder):
         # Here we write out a structure
         filesystem.create_dir(target_folder)

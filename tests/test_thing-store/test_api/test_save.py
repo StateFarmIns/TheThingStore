@@ -1,4 +1,5 @@
 """Test save functions."""
+
 import os
 import pytest
 import tempfile
@@ -6,6 +7,8 @@ from thethingstore.api.save import save
 
 
 class Stupid:
+    """Mock class."""
+
     a = 1
 
 
