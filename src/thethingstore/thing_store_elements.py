@@ -2,15 +2,17 @@
 
 This exposes standard metadata.
 """
+
 from datetime import datetime
-from thethingstore.types import FileId
+from thethingstore._types import FileId
 from pydantic import BaseModel, Extra, Field
+from typing import Optional
 
 
 class Metadata(BaseModel, extra=Extra.allow):
     """DataModel representing a set of individual metadata for a thing."""
 
-    FILE_ID: FileId = Field(default=None, description="The unique FileID")
+    FILE_ID: Optional[FileId] = Field(default=None, description="The unique FileID")
     FILE_VERSION: int = Field(default=1, description="The File Version")
     DATASET_DATE: datetime = Field(
         default=datetime.now(), description="The date and time of creation / update."

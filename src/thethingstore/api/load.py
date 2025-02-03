@@ -2,6 +2,7 @@
 
 The utilities here allow for abstracting loading patterns.
 """
+
 import collections
 import logging
 import numpy as np
@@ -12,7 +13,7 @@ import pandas as pd
 import pathlib
 import pickle  # nosec - This requires explicit loading.
 
-from thethingstore import types as tst
+from thethingstore import _types as tst
 from thethingstore.api import error as tsle
 from thethingstore.api._fs import get_fs, ls_dir
 
@@ -74,7 +75,7 @@ def _get_type(  # noqa: C901
     _type = x[0]
     if _type == str:
         # Dataset type can be parquet, shape, or file id
-        _endswith = list({pathlib.Path(_).suffix for _ in dataset_or_filepaths})
+        _endswith = list({pathlib.Path(_).suffix for _ in dataset_or_filepaths})  # type: ignore
 
         if len(_endswith) > 1:
             raise tsle.ThingStoreLoadingError(  # type: ignore
@@ -434,6 +435,8 @@ def materialize(  # noqa: C901
 
     This requries a consistent naming convention for files.
 
+    If the item is a ThingPointer, it will NOT be resolved. The pointer will be loaded as is.
+
     Parameters
     ----------
     filepath: Union[str, List[str], Dict[str, str]]
@@ -484,6 +487,9 @@ def materialize(  # noqa: C901
             --------\n{filepath}
             """
             )
+        if item.startswith("ts-PTR"):  # A pointer
+            with filesystem.open_input_file(filepath) as f:
+                return f.read().decode()
         if item.startswith("ts-atomic"):  # Single thing.
             return (
                 ds.dataset(filepath, filesystem=filesystem)
@@ -645,7 +651,7 @@ def _map_load(
                     _dataset_or_filepaths = _load_funcs[dataset_type](
                         _dataset_or_filepaths
                     )
-                except BaseException as e:
+                except BaseException as e:  # noqa: B036 - Flake is missing the reuse.
                     raise tsle.ThingStoreLoadingError(
                         f"""
                     \nUnable to load a file of type {dataset_type}.

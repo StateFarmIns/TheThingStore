@@ -2,10 +2,11 @@
 
 This contains the ThingNode class and some plotting functionality.
 """
+
 import logging
 import os
 import pyarrow.dataset as ds
-from thethingstore.types import FileId
+from thethingstore._types import FileId
 from thethingstore import ThingStore
 from typing import Any, Callable, List, Mapping, Optional, Tuple, Union
 
@@ -192,7 +193,7 @@ class ThingNode:  # pragma: no cover
         """
         if "metrics" not in self._component_set:
             raise NotImplementedError(self._log_header + "Metrics not a valid option.")
-        return self._ts.get_metrics(self.file_id)
+        return self._ts.get_metrics(self.file_id)  # type: ignore
 
     def get_parameters(self) -> Mapping[str, Any]:  # pragma: no cover
         """Retrieve the node parameters.
@@ -224,7 +225,7 @@ class ThingNode:  # pragma: no cover
             raise NotImplementedError(
                 self._log_header + "Embedding not a valid option."
             )
-        return self._ts.get_embedding(self.file_id)
+        return self._ts.get_embedding(self.file_id)  # type: ignore
 
     def get_function(self) -> Callable:
         """Retrieve the node function.
@@ -243,17 +244,19 @@ class ThingNode:  # pragma: no cover
         return self._ts.get_function(self.file_id)  # type: ignore
 
     def __repr__(self) -> str:
+        """Represent a thing node."""
         # TODO: Represent this as a full fileid?
         return f"ThingNode[{self.file_id}]"
 
     def plot(self) -> None:
+        """Plot a thing node."""
         plot_node(self).show(f"{self}.html")
 
 
 def _build_component_map(  # pragma: no cover
     node: ThingNode, component_set: list[str]
 ) -> Mapping[str, Callable]:
-    "Build and return component mapping."
+    """Build and return component mapping."""
     component_map = {}
     for _attr in component_set:
         if _attr == "dataset":
@@ -364,6 +367,7 @@ def _get_nonfunctional_component_nodes_edges(  # pragma: no cover
 def get_component_description(  # noqa: C901
     thing_node: ThingNode, component: str
 ) -> Mapping[str, Union[str, int, float]]:  # pragma: no cover
+    """Get the description of a component."""
     if component == "source":
         return {
             "label": "Source",

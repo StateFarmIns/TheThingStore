@@ -8,6 +8,7 @@ Finally it creates a fixture returning a single testing function that
 can be used to validate if any thing store implementation functions as
 expected.
 """
+
 import boto3
 import json
 import numpy as np
@@ -19,7 +20,7 @@ import tempfile
 from botocore.config import Config
 from thethingstore.thing_store_base import ThingStore
 from thethingstore.thing_store_elements import Metadata
-from thethingstore.types import Dataset, Parameter, Metric
+from thethingstore._types import Dataset, Parameter, Metric
 from moto.server import ThreadedMotoServer
 from typing import Dict, List, Union
 
@@ -50,19 +51,21 @@ def test_temporary_folder() -> str:
 
 
 @pytest.fixture(scope="package")
-def set_env() -> None:
-    """Set env var"""
+def _set_env() -> None:
+    """Set env var."""
     os.environ["SHAPE_RESTORE_SHX"] = "YES"  # nosec
     os.environ["AWS_ACCESS_KEY_ID"] = "testing"  # nosec
     os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"  # nosec
     os.environ["AWS_SECURITY_TOKEN"] = "testing"  # nosec
     os.environ["AWS_SESSION_TOKEN"] = "testing"  # nosec
+    os.environ["AWS_ENDPOINT_URL"] = "http://localhost:5000"  # nosec
     os.environ["HTTP_PROXY"] = "http://localhost:5000"  # nosec
     os.environ["HTTPS_PROXY"] = "http://localhost:5000"  # nosec
 
 
 @pytest.fixture(scope="package", autouse=True)
-def moto_server(set_env, test_temporary_folder):
+def moto_server(_set_env, test_temporary_folder):
+    """Spin up a moto server for testing."""
     server = ThreadedMotoServer()
     server.start()
     client = boto3.client(
@@ -78,19 +81,19 @@ def moto_server(set_env, test_temporary_folder):
 
 
 @pytest.fixture(scope="package")
-def client(set_env, moto_server):
+def client(_set_env, moto_server):
+    """Create a boto3 client for testing."""
     client = boto3.client(
         "s3",
         endpoint_url="http://localhost:5000",
         config=Config(proxies={"https": "localhost:5000", "http": "localhost:5000"}),
     )
-    yield client
+    return client
 
 
 @pytest.fixture(scope="package")
-@pytest.mark.usefixtures("test_temporary_folder")
 def testing_artifacts_folder(test_temporary_folder: str) -> None:
-    """This creates a artifacts folder and populates it.
+    """Create artifacts folder and populate it.
 
     This folder is used in logging calls within the test suite.
 
@@ -121,9 +124,8 @@ _test_data_type = Dict[
 
 
 @pytest.fixture(scope="package")
-@pytest.mark.usefixtures("test_temporary_folder", "testing_artifacts_folder")
 def testing_data(test_temporary_folder, testing_artifacts_folder) -> _test_data_type:
-    """This creates testing data.
+    """Create testing data.
 
     This testing data is used to test any Thing Store
     implementation.
@@ -153,7 +155,6 @@ def testing_data(test_temporary_folder, testing_artifacts_folder) -> _test_data_
 
 
 @pytest.fixture(scope="package")
-@pytest.mark.usefixtures("testing_data")
 def integration_test(testing_data: _test_data_type) -> None:
     """Return a testing function.
 
@@ -182,7 +183,7 @@ def integration_test(testing_data: _test_data_type) -> None:
     def test_the_things(
         remote_thing_store: ThingStore, local_thing_store: ThingStore
     ) -> None:
-        """Test all the things!
+        """Test all the things.
 
         This tests thing_store API and validates that a thing_store
         construct behaves appropriately. This is called on specific
@@ -235,17 +236,26 @@ def integration_test(testing_data: _test_data_type) -> None:
         #   metadata are present.
         # Then, we remove them to validate that we record all
         #   the business logic inspired features appropriately.
-        _default_metadata = Metadata(**{}).dict()
+        _default_metadata = Metadata(**{}).model_dump()
         assert set(_default_metadata).issubset(set(actual_metadata))
-        pd.testing.assert_frame_equal(
-            left=expected_metadata,
-            #  These two are dynamic.
-            right=pd.DataFrame([actual_metadata])
+        _left = expected_metadata.drop(columns=["FILE_ID", "DATASET_DATE"])
+        _right = (
+            pd.DataFrame([actual_metadata])
             .astype(expected_metadata.dtypes)
-            .drop(columns=list(_default_metadata)),
-            check_dtype=False,
-            check_like=True,
+            .drop(columns=list(_default_metadata))
         )
+        try:
+            pd.testing.assert_frame_equal(
+                left=_left,
+                #  These two are dynamic.
+                right=_right,
+                check_dtype=False,
+                check_like=True,
+            )
+        except BaseException as e:  # noqa: B036 - This is a catchall
+            msg = f"Unable to validate metadata:\n\tExpected:{_left}"
+            msg += f"\n\tActual:{_right}"
+            raise Exception(msg) from e
         # 1.d: Validate the metrics were recorded appropriately.
         actual_metrics = pd.DataFrame(
             [remote_thing_store.get_metrics(file_identifier=file_id)]
@@ -285,12 +295,12 @@ def integration_test(testing_data: _test_data_type) -> None:
             remote_thing_store.get_artifact(
                 file_identifier=file_id, artifact_identifier="list.txt", target_path=t
             )
-            with open(f"{t}/artifacts/list.txt", "r") as f:
+            with open(f"{t}/list.txt", "r") as f:
                 assert json.loads(f.read()) == artifact_list
             remote_thing_store.get_artifact(
                 file_identifier=file_id, artifact_identifier="numpy.npy", target_path=t
             )
-            assert np.all(np.load(f"{t}/artifacts/numpy.npy") == artifact_np)
+            assert np.all(np.load(f"{t}/numpy.npy") == artifact_np)
         # 5. Copy this to a local store.
         local_thing_store.copy(file_identifier=file_id, thing_store=remote_thing_store)
         # What does the local_thing_store look like now?
@@ -331,14 +341,23 @@ def integration_test(testing_data: _test_data_type) -> None:
             check_dtype=False,
             check_like=True,
         )
-        pd.testing.assert_frame_equal(
-            left=pd.DataFrame([local_thing_store.get_metadata(file_identifier=file_id)])
+        _left = (
+            pd.DataFrame([local_thing_store.get_metadata(file_identifier=file_id)])
             .astype(expected_metadata.dtypes)
-            .drop(columns=list(_default_metadata.keys())),
-            right=expected_metadata,
-            check_dtype=False,
-            check_like=True,
+            .drop(columns=list(_default_metadata.keys()))
         )
+        _right = expected_metadata.drop(columns=["FILE_ID", "DATASET_DATE"])
+        try:
+            pd.testing.assert_frame_equal(
+                left=_left,
+                right=_right,
+                check_dtype=False,
+                check_like=True,
+            )
+        except BaseException as e:  # noqa: B036 - Catchall
+            msg = f"Unable to validate metadata:\n\tExpected:{_right}"
+            msg += f"\n\tActual:{_left}"
+            raise Exception(msg) from e
         pd.testing.assert_frame_equal(
             left=pd.DataFrame(
                 [local_thing_store.get_metrics(file_identifier=file_id)]
@@ -378,7 +397,7 @@ def integration_test(testing_data: _test_data_type) -> None:
         newdata = local_thing_store.load(file_id)
         assert newdata.equals(pd.DataFrame([{"silly": "newstuff"}])), newdata
         # list artifacts
-        assert local_thing_store.list_artifacts(file_id) == []
+        assert local_thing_store.list_artifacts(file_id) == ["ts-PTR"]
         # TODO: Fix this with schema enforcement...
         params = local_thing_store.get_parameters(file_id)
         params["stupid"] = int(float(params["stupid"]))

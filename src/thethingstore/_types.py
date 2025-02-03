@@ -28,6 +28,7 @@ Typing Utilities
     If one potentially deeply nested mapping has both parquet and
     shape held within this will have two values.
 """
+
 import datetime
 import logging
 import os
@@ -42,7 +43,7 @@ from typing import (
     Mapping,
     Optional,
     TypedDict,
-    TypeVar,
+    Type,
     Union,
 )
 from pyarrow import Table
@@ -74,17 +75,18 @@ except ImportError:
 #######################
 # TODO: Make Param / metadata more arbitrary.
 FileId = str
-Atomic = TypeVar("Atomic", str, int, float, datetime.datetime, FileId, None)
-Complex = TypeVar("Complex", Iterable[Atomic], Mapping[str, Atomic])  # type: ignore
-Dataset = TypeVar(
-    "Dataset", Atomic, Complex, paDataset, Table, pdDataFrame, GeoDataFrame  # type: ignore
-)
+Address = str
+Atomic = Union[str, int, float, datetime.datetime, FileId, Type[None]]
+Complex = Union[Iterable[Atomic], Mapping[str, Atomic]]
+Dataset = Union[Atomic, Complex, paDataset, Table, pdDataFrame, GeoDataFrame]
 Metadata = Atomic  # type: ignore
-Parameter = TypeVar("Parameter", Atomic, Complex)  # type: ignore
+Parameter = Union[Atomic, Complex]
 Metric = Atomic  # type: ignore
 
 
 class Thing(TypedDict, total=False):
+    """Represent a Thing."""
+
     dataset: Optional[Dataset]  # type: ignore
     metadata: Optional[Mapping[str, Metadata]]  # type: ignore
     parameters: Optional[Mapping[str, Parameter]]  # type: ignore
@@ -234,7 +236,8 @@ def _unique(all_info: _info_out_types) -> set:
     """Build sets of types.
 
     This is intended to be called on the OUTPUT of get_info and is
-    not a public method."""
+    not a public method.
+    """
     if isinstance(all_info, str):  # Only one string
         # It is a set by itself.
         return {all_info}

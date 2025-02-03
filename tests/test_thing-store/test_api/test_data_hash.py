@@ -1,3 +1,5 @@
+"""Test data hash."""
+
 import pytest
 import tempfile
 import time
@@ -106,24 +108,27 @@ def _treat_params(params, folder):
     params=[_ for _ in thing_store_sets if _[2] == "LocalFilesystem"],
     ids=lambda x: f"Local:{x[2]}",
 )
-@pytest.mark.usefixtures("test_temporary_folder")
 def local_thing_store(request, test_temporary_folder):
+    """Provide local thing store."""
     # This creates a local thing_store.
     thing_store, params, test_name = request.param
     new_params = _treat_params(params, test_temporary_folder)
-    yield thing_store(**new_params)
+    return thing_store(**new_params)
 
 
 @pytest.fixture(
     params=[_ for _ in thing_store_sets if _[2] != "LocalFilesystem"],
     ids=lambda x: f"Remote:{x[2]}",
 )
-@pytest.mark.usefixtures("test_temporary_folder")
 def remote_thing_store(request, test_temporary_folder):
+    """Provide remote thing store."""
     # This creates a remote thing_store.
-    thing_store, params, test_name = request.param
+    thing_store, params, _ = request.param
     new_params = _treat_params(params, test_temporary_folder)
-    yield thing_store(**new_params)
+    try:
+        return thing_store(**new_params)
+    except BaseException as e:  # noqa: B036
+        raise Exception(params) from e
 
 
 @pytest.mark.usefixtures(
@@ -132,6 +137,7 @@ def remote_thing_store(request, test_temporary_folder):
     "testing_data",
 )
 def test_dataset_digest(remote_thing_store, local_thing_store, testing_data):
+    """Test digest function."""
     # Make the DATASET_DATE deterministic
     time = datetime(year=2000, month=1, day=1)
     testing_data["metadata"].update({"FILE_ID": "TESTFILEID", "DATASET_DATE": time})
@@ -203,7 +209,7 @@ def test_dataset_digest(remote_thing_store, local_thing_store, testing_data):
 
 @pytest.mark.parametrize(("dataset"), datasets_to_hash)
 def test_dataset_digest_ram(dataset):
-    """Test Pandas and PyArrow datasets from RAM"""
+    """Test Pandas and PyArrow datasets from RAM."""
     # Calculate hashes twice
     hash_hex_1, hash_bytes_1, hash_int_1 = (
         tsh.dataset_digest(df=dataset, return_type="hex"),
@@ -226,7 +232,7 @@ def test_dataset_digest_ram(dataset):
     "client",
 )
 def test_dataset_digest_s3(remote_thing_store, testing_data, client):
-    # This test is for s3 only
+    """Test s3 digest."""
     if not isinstance(remote_thing_store, S3FileSystem):
         return
 
@@ -266,6 +272,7 @@ def test_dataset_digest_s3(remote_thing_store, testing_data, client):
 
 @pytest.fixture(scope="module")
 def measure_metadata():
+    """Measure metadata hash."""
     with tempfile.TemporaryDirectory() as t:
         ts = FileSystemThingStore(
             metadata_filesystem=LocalFileSystem(),
@@ -286,6 +293,7 @@ def measure_metadata():
     ids=lambda x: f"[{x[0]}-{x[2]}]",
 )
 def test_dataset_digest_benchmark(measure_metadata, request):
+    """Test benchmark."""
     num_of_rows, cols, chunk_size = request.param
 
     # Generates deterministic data given num of rows/columns
@@ -328,4 +336,5 @@ def test_dataset_digest_benchmark(measure_metadata, request):
 
 
 def test_measurement(measure, measure_metadata):
+    """Test measurement."""
     assert isinstance(measure, str)

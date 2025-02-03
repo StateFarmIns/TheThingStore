@@ -9,8 +9,9 @@ Data Models
 ~~~~~~~~~~~
 FileId: This is a pydantic data model.
 """
+
 import urllib.parse
-import thethingstore as ts
+from thethingstore.thing_store_base import _implemented_ts
 from thethingstore.api.error import FileIDError, ThingStoreGeneralError as TSGE
 from pyarrow.fs import LocalFileSystem, S3FileSystem
 from pydantic import BaseModel, Field, validator, root_validator
@@ -190,6 +191,7 @@ class FileID(BaseModel):
     def convert_fileversion(
         cls: BaseModel, val: Optional[str] = None
     ) -> Optional[Union[int, str]]:
+        """Convert FILE_VERSION."""
         if val is None:  # pragma: nocover
             return val
         try:
@@ -201,6 +203,7 @@ class FileID(BaseModel):
     def convert_implementation_params(
         cls: BaseModel, val: Optional[Dict[str, Union[str, type]]]
     ) -> Optional[Dict[str, Union[str, Any]]]:
+        """Convert implementation parameters."""
         if val is None:  # pragma: nocover
             return val
         for key, value in val.items():
@@ -213,7 +216,8 @@ class FileID(BaseModel):
 
     @validator("implementation")
     def convert_implementation(cls: BaseModel, val: str) -> Any:
-        if val not in ts._implemented_ts:
+        """Convert implementation."""
+        if val not in _implemented_ts:
             raise TSGE(
                 f"""Not an accessible Thing Store implementation: {val}
 
@@ -221,10 +225,10 @@ class FileID(BaseModel):
             requirements are installed.
 
             Available Flavors of Thing Store
-            -----------------------------\n{list(ts._implemented_ts.keys())}
+            -----------------------------\n{list(_implemented_ts.keys())}
             """
             )
-        return ts._implemented_ts[val]
+        return _implemented_ts[val]
 
     # This mypy validation is brought to you by 'Adding twenty lines of code to
     #   clarify things is not worth it.' This is *pydantic* code, not mine.
@@ -233,6 +237,7 @@ class FileID(BaseModel):
     #   going to work.
     @root_validator(pre=True)
     def validate_ts(cls: BaseModel, values: Dict[str, Any]):  # type: ignore
+        """Validate implementation."""
         if "implementation_params" not in values:
             raise NotImplementedError(
                 "FileID Schema must have `implementation_params`."

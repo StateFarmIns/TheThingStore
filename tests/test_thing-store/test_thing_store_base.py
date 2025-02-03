@@ -1,4 +1,5 @@
 """Test base thing store object."""
+
 import pyarrow as pa
 import pytest
 from thethingstore.thing_store_base import ThingStore
@@ -6,13 +7,13 @@ from pyarrow.fs import FileSystem, LocalFileSystem, S3FileSystem
 
 
 test_cases = [
-    (LocalFileSystem(),),
-    (S3FileSystem(),),
+    (LocalFileSystem()),
+    (S3FileSystem()),
 ]
 
 
 @pytest.mark.usefixtures("test_temporary_folder")
-@pytest.mark.parametrize(("metadata_filesystem",), test_cases)
+@pytest.mark.parametrize(("metadata_filesystem"), test_cases)
 def test_base_thing_store_object(
     metadata_filesystem: FileSystem, test_temporary_folder: str
 ):
